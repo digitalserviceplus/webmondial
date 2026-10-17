@@ -205,7 +205,11 @@ async function main() {
     console.info(`Local database backup created at ${path.relative(root, backupDirectory)}.`);
 
     source = await PGlite.create(sourceDirectory);
+    await target.end();
+    target = undefined;
     applyPrismaMigrations(connectionString);
+    target = new Client({ connectionString, connectionTimeoutMillis: 15_000 });
+    await target.connect();
     const targetTables = await listApplicationTables(target);
     const missingTables = sourceTables.filter((table) => !targetTables.includes(table));
     const unexpectedTables = targetTables.filter((table) => !sourceTables.includes(table));
