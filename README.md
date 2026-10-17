@@ -1,36 +1,78 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Web Mondial
 
-## Getting Started
+Web Mondial is a multi-tenant sports-pronostics community platform built with Next.js App Router, TypeScript, PostgreSQL, Prisma, and Auth.js.
 
-First, run the development server:
+## Implemented workflows
+
+- Public landing page, tenant search, public tenant profiles, metadata, and redirects from approved legacy handles.
+- Public sitemap and crawler rules generated from active partner spaces.
+- Player registration, credential sign-in, one-time admin général setup, and one-time partner-admin activation.
+- Role-aware player, partner, and admin général dashboards with profile photo, account details, language/theme preferences, and password updates.
+- Single-use, expiring password reset links; local development displays a private reset link on the request screen and production sends it through the configured SMTP server.
+- Tenant membership, publication feeds and categories, post composition, likes, reports, and bookmaker management.
+- Image/video uploads stored on the server, with signature-based type checks and visibility-aware delivery.
+- Partner applications, agreement acceptance, subscription status, tenant moderation, user invitations, identifier-change review, and global plan/support/contract settings.
+- PostgreSQL-backed tenant-scoped records, payment state transitions, rate limits, and audit logs.
+- SasPay hosted checkout for partner subscriptions and paid publications, server-side payment verification, idempotent settlement, and signed webhook handling.
+- A deliberately restricted mock payment flow for local development when no SasPay API key is configured; it is disabled in production.
+
+## Integration boundaries
+
+- SasPay's API key belongs only in the ignored server-side `.env` as `SASPAY_API_KEY`; adding it enables hosted checkout and never exposes it to the browser. Checkout returns are verified against SasPay before a subscription is extended or content is unlocked. For signed webhook delivery, create `https://<your-domain>/api/payments/saspay/webhook` in the SasPay dashboard and store its one-time signing secret as `SASPAY_WEBHOOK_SECRET`. Set `APP_URL` to the public HTTPS origin in production. See the [official SasPay API documentation](https://docs.saspay.me/).
+- Post media can use HTTPS URLs or server-side uploads (JPEG/PNG/GIF/WebP and MP4/WebM, maximum 20 MB). Local uploads are stored under `.local-data/uploads`; production uses a private Vercel Blob store and continues serving media through the authenticated application route.
+- Password recovery works locally by showing a one-time reset link. Production recovery email uses `EMAIL_SERVER_URL` and `EMAIL_FROM` in the server environment. Email verification, Google OAuth, scheduled expiration reminders, and automated notification delivery are not configured.
+- French, English, and Spanish can be selected on the public site and authentication pages; account language and theme preferences are saved to the profile.
+- Committed Prisma migrations keep the database schema in sync. Local development uses an embedded PostgreSQL-compatible database; production uses managed PostgreSQL on Neon.
+
+## Requirements
+
+- Node.js 20.9 or newer.
+- npm.
+
+## Local setup
+
+Run the development server:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+On the first run, the development launcher creates a local `.env`, starts an embedded PostgreSQL-compatible database, applies the committed migrations, and starts Next.js. Database files persist in `.local-data/`; Docker and a separately installed PostgreSQL service are not required for local development. The generated `.env` and database files are ignored by Git.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Open [http://localhost:3000](http://localhost:3000). The launcher prints a one-time setup code while no admin général exists. Open [http://localhost:3000/configuration](http://localhost:3000/configuration) and use that code to create the first admin général account. The setup code remains in `.env` and is only for the initial local account.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+To use an existing PostgreSQL server instead, set its `DATABASE_URL` in `.env`; the launcher will apply migrations to that database and will not start the embedded database.
 
-## Learn More
+An optional demo partner can be created by setting `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSWORD` (at least 12 characters) in `.env`, then running:
 
-To learn more about Next.js, take a look at the following resources:
+   ```bash
+   npm run db:seed
+   ```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+   The seeded space is available at `/${SEED_TENANT_HANDLE}` (defaults to `/xpro-demo`). Seed credentials are supplied by the operator and are not committed to the repository.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Useful commands
 
-## Deploy on Vercel
+```bash
+npm run typecheck
+npm run lint
+npm run test
+npm run db:generate
+npm run db:migrate
+npm run db:deploy
+npm run db:seed
+npm run build
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Production migration and deployment
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+The local database and uploads under `.local-data` are ignored by Git and must never be committed. Create a local-only `.env.migration.local` file containing `NEON_DIRECT_URL` (the unpooled Neon connection string) and `BLOB_READ_WRITE_TOKEN` (a private Blob store read-write token). Do not send these values in chat or add the file to Git.
+
+1. Create the Neon production database and connect a private Vercel Blob store to the Vercel project.
+2. Run `npm run neon:check` to list local table row counts without changing either database.
+3. Run `npm run neon:import` to create a local backup under `.local-data/migration-backups`, apply committed Prisma migrations to the empty Neon database, then copy all application rows in foreign-key order. The importer refuses a non-empty target and leaves the local database unchanged.
+4. Run `npm run media:migrate` to copy existing uploads to private Blob paths while preserving their media IDs and application URLs.
+5. Configure Vercel production variables: `DATABASE_URL` (Neon pooled connection), `AUTH_SECRET`, `AUTH_URL`, `NEXT_PUBLIC_APP_URL`, `APP_URL`, a random `INITIAL_SETUP_TOKEN`, and `CRON_SECRET`. Set `SASPAY_API_KEY` and `SASPAY_WEBHOOK_SECRET` directly in Vercel when enabling live payments; configure SMTP using `EMAIL_SERVER_URL` and `EMAIL_FROM` for password recovery. Never expose these values in the browser, Git, or chat.
+6. Verify the SasPay webhook URL at `https://<production-domain>/api/payments/saspay/webhook`, and remove `INITIAL_SETUP_TOKEN` from Vercel after creating the first admin général.
+
+Apply committed schema changes through `npm run db:deploy`. Never run the import against a database that already contains live production data.

@@ -1,0 +1,515 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  PLAYER
+}
+
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+  PENDING
+  ARCHIVED
+}
+
+enum PostCategory {
+  DAILY
+  PREMIUM
+  MONTANTE
+  VIP
+  FIXED
+  GROSSE_COTE
+  GENERAL
+}
+
+enum PostVisibility {
+  PUBLIC
+  TENANT_PLAYERS
+  PRIVATE
+  PAID
+}
+
+enum PostStatus {
+  ACTIVE
+  HIDDEN
+  DELETED
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO
+}
+
+enum NotificationType {
+  NEW_PUBLICATION
+  NEW_PREMIUM_PUBLICATION
+  SUBSCRIPTION
+  EXPIRATION
+  PARTNERSHIP
+  SYSTEM
+  NEW_PLAYER
+  NEW_REPORT
+  TENANT_SUSPENDED
+  TENANT_REACTIVATED
+}
+
+enum ApplicationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum ReviewStatus {
+  OPEN
+  UNDER_REVIEW
+  RESOLVED
+  DISMISSED
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  EXPIRED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+enum PaymentType {
+  PARTNER_SUBSCRIPTION
+  PAID_PUBLICATION
+}
+
+model User {
+  id                         String                    @id @default(cuid())
+  name                       String
+  email                      String?                   @unique
+  phone                      String?                   @unique
+  passwordHash               String?
+  country                    String?
+  avatarUrl                  String?
+  role                       UserRole                  @default(PLAYER)
+  createdAt                  DateTime                  @default(now())
+  updatedAt                  DateTime                  @updatedAt
+  ownedTenants               Tenant[]                  @relation("TenantOwner")
+  memberships                TenantMembership[]
+  posts                      Post[]                    @relation("PostAuthor")
+  likes                      PostLike[]
+  notifications              Notification[]
+  applications               PartnershipApplication[]  @relation("ApplicationApplicant")
+  reviewedApplications       PartnershipApplication[]  @relation("ApplicationReviewer")
+  agreements                 PartnershipAgreement[]
+  subscriptions              Subscription[]
+  payments                   Payment[]
+  authoredReports            Report[]                  @relation("ReportAuthor")
+  reviewedReports            Report[]                  @relation("ReportReviewer")
+  postViews                  PublicationView[]
+  purchases                  PublicationPurchase[]
+  auditLogs                  AuditLog[]
+  settings                   UserSettings?
+  reviewedIdentifierRequests IdentifierChangeRequest[] @relation("IdentifierReviewer")
+  invitationsReceived        AdminInvitation[]         @relation("InvitationRecipient")
+  invitationsCreated         AdminInvitation[]         @relation("InvitationCreator")
+  passwordResetTokens        PasswordResetToken[]
+
+  @@index([role, createdAt])
+}
+
+model Tenant {
+  id                 String                    @id @default(cuid())
+  ownerId            String
+  handle             String                    @unique
+  displayName        String
+  bio                String?                   @db.Text
+  avatarUrl          String?
+  paymentLink        String?                   @db.Text
+  paymentPhone       String?                   @db.VarChar(20)
+  paymentInstructions String?                  @db.Text
+  status             TenantStatus              @default(ACTIVE)
+  suspensionReason   String?                   @db.Text
+  createdAt          DateTime                  @default(now())
+  updatedAt          DateTime                  @updatedAt
+  owner              User                      @relation("TenantOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  members            TenantMembership[]
+  posts              Post[]
+  notifications      Notification[]
+  applications       PartnershipApplication[]
+  agreements         PartnershipAgreement[]
+  invitation         AdminInvitation?
+  subscription       Subscription?
+  reports            Report[]
+  results            CouponResult[]
+  payments           Payment[]
+  bookmakers         Bookmaker[]
+  identifierRequests IdentifierChangeRequest[]
+  aliases            TenantAlias[]
+  auditLogs          AuditLog[]
+
+  @@index([ownerId, status])
+  @@index([status, createdAt])
+}
+
+model TenantMembership {
+  id        String   @id @default(cuid())
+  tenantId  String
+  userId    String
+  createdAt DateTime @default(now())
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId])
+  @@index([userId, createdAt])
+  @@index([tenantId, createdAt])
+}
+
+model Post {
+  id          String                @id @default(cuid())
+  tenantId    String
+  authorId    String
+  category    PostCategory          @default(GENERAL)
+  sport       String?
+  title       String?               @db.VarChar(180)
+  content     String                @db.Text
+  mediaUrl    String?
+  mediaType   MediaType?
+  visibility  PostVisibility        @default(TENANT_PLAYERS)
+  status      PostStatus            @default(ACTIVE)
+  price       Int?
+  currency    String                @default("XOF") @db.VarChar(3)
+  published   Boolean               @default(true)
+  publishedAt DateTime              @default(now())
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+  tenant      Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  author      User                  @relation("PostAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  likes       PostLike[]
+  views       PublicationView[]
+  purchases   PublicationPurchase[]
+  result      CouponResult?
+
+  @@index([tenantId, published, createdAt])
+  @@index([tenantId, status, visibility, publishedAt])
+  @@index([authorId, createdAt])
+}
+
+model CouponResult {
+  id        String    @id @default(cuid())
+  tenantId  String
+  postId    String    @unique
+  title     String?   @db.VarChar(180)
+  content   String    @db.Text
+  mediaUrl  String?
+  mediaType MediaType?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  post      Post      @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
+}
+
+model PostLike {
+  id        String   @id @default(cuid())
+  postId    String
+  userId    String
+  createdAt DateTime @default(now())
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, userId])
+  @@index([userId, createdAt])
+}
+
+model PublicationView {
+  id        String   @id @default(cuid())
+  postId    String
+  userId    String
+  createdAt DateTime @default(now())
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, userId])
+  @@index([postId, createdAt])
+  @@index([userId, createdAt])
+}
+
+model PublicationPurchase {
+  id        String   @id @default(cuid())
+  postId    String
+  userId    String
+  paymentId String?  @unique
+  createdAt DateTime @default(now())
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Restrict)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  payment   Payment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+
+  @@unique([postId, userId])
+  @@index([userId, createdAt])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  tenantId  String?
+  type      NotificationType
+  title     String
+  body      String           @db.Text
+  href      String?
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant    Tenant?          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt, createdAt])
+  @@index([tenantId, createdAt])
+}
+
+model PartnershipApplication {
+  id                   String            @id @default(cuid())
+  userId               String
+  requestedHandle      String            @unique
+  requestedDisplayName String
+  bio                  String?           @db.Text
+  status               ApplicationStatus @default(PENDING)
+  reviewerId           String?
+  reviewedAt           DateTime?
+  tenantId             String?           @unique
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  user                 User              @relation("ApplicationApplicant", fields: [userId], references: [id], onDelete: Restrict)
+  reviewer             User?             @relation("ApplicationReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+  tenant               Tenant?           @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([userId, status])
+}
+
+model PartnershipAgreement {
+  id         String    @id @default(cuid())
+  userId     String
+  tenantId   String    @unique
+  version    String
+  content    String    @db.Text
+  acceptedAt DateTime?
+  ipAddress  String?
+  createdAt  DateTime  @default(now())
+  user       User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([userId, acceptedAt])
+}
+
+model AdminInvitation {
+  id          String    @id @default(cuid())
+  userId      String    @unique
+  tenantId    String    @unique
+  createdById String
+  tokenHash   String    @unique
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  user        User      @relation("InvitationRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy   User      @relation("InvitationCreator", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([expiresAt, acceptedAt])
+}
+
+model Report {
+  id          String       @id @default(cuid())
+  tenantId    String
+  authorId    String
+  reason      String
+  description String       @db.Text
+  status      ReviewStatus @default(OPEN)
+  reviewerId  String?
+  resolution  String?      @db.Text
+  reviewedAt  DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  author      User         @relation("ReportAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  reviewer    User?        @relation("ReportReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([tenantId, createdAt])
+}
+
+model SubscriptionPlan {
+  id                   String         @id @default(cuid())
+  name                 String
+  monthlyPrice         Int
+  currency             String         @default("XOF") @db.VarChar(3)
+  trialDays            Int            @default(3)
+  singleMonthBonusDays Int            @default(7)
+  multiMonthBonus      Int            @default(1)
+  enabled              Boolean        @default(true)
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  subscriptions        Subscription[]
+}
+
+model Subscription {
+  id                 String             @id @default(cuid())
+  userId             String
+  tenantId           String             @unique
+  planId             String
+  status             SubscriptionStatus @default(TRIAL)
+  trialStartedAt     DateTime?
+  trialEndsAt        DateTime?
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  paidMonths         Int                @default(0)
+  lastReminderDays   Int?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  user               User               @relation(fields: [userId], references: [id], onDelete: Restrict)
+  tenant             Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  plan               SubscriptionPlan   @relation(fields: [planId], references: [id], onDelete: Restrict)
+  payments           Payment[]
+
+  @@index([status, currentPeriodEnd])
+  @@index([userId, createdAt])
+}
+
+model Payment {
+  id                String               @id @default(cuid())
+  userId            String
+  tenantId          String?
+  subscriptionId    String?
+  type              PaymentType
+  provider          String               @default("mock")
+  externalReference String               @unique
+  providerPaymentId String?              @unique
+  checkoutUrl       String?              @db.Text
+  amount            Int
+  currency          String               @default("XOF") @db.VarChar(3)
+  status            PaymentStatus        @default(PENDING)
+  months            Int?
+  metadata          Json?
+  processedAt       DateTime?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  user              User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
+  tenant            Tenant?              @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  subscription      Subscription?        @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  purchase          PublicationPurchase?
+
+  @@index([userId, status, createdAt])
+  @@index([tenantId, createdAt])
+}
+
+model Bookmaker {
+  id         String   @id @default(cuid())
+  tenantId   String
+  name       String
+  promoCode  String?
+  signupUrl  String
+  videoUrl   String?
+  logoUrl    String?
+  brandColor String?
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, active, createdAt])
+}
+
+model IdentifierChangeRequest {
+  id              String       @id @default(cuid())
+  tenantId        String
+  oldHandle       String
+  requestedHandle String
+  reason          String       @db.Text
+  status          ReviewStatus @default(OPEN)
+  reviewerId      String?
+  reviewedAt      DateTime?
+  createdAt       DateTime     @default(now())
+  tenant          Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  reviewer        User?        @relation("IdentifierReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+}
+
+model TenantAlias {
+  id        String   @id @default(cuid())
+  tenantId  String
+  handle    String   @unique
+  createdAt DateTime @default(now())
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
+}
+
+model UserSettings {
+  userId        String   @id
+  language      String   @default("fr")
+  theme         String   @default("dark")
+  timezone      String   @default("Africa/Porto-Novo")
+  notifications Boolean  @default(true)
+  updatedAt     DateTime @updatedAt
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model SystemSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  actorId   String?
+  tenantId  String?
+  action    String
+  target    String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+  actor     User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  tenant    Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  @@index([actorId, createdAt])
+  @@index([tenantId, createdAt])
+  @@index([action, createdAt])
+}
+
+model RateLimitCounter {
+  key       String   @id
+  count     Int      @default(0)
+  resetAt   DateTime
+  updatedAt DateTime @updatedAt
+
+  @@index([resetAt])
+}
+
+model SetupState {
+  key         String   @id
+  completedAt DateTime @default(now())
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt, usedAt])
+}
