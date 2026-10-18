@@ -1,6 +1,5 @@
 import { Suspense } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { redirect } from "next/navigation";
 import { io } from "next/cache";
 import {
@@ -27,6 +26,8 @@ import DashboardNavigation from "./dashboard-navigation";
 import { messagesFor } from "@/lib/i18n";
 import { annualSubscriptionCutoff, canPublishContent, canPublishPaidContent } from "@/lib/subscriptions";
 import { hasBeenOnPlatformForMoreThanThreeMonths } from "@/lib/report-eligibility";
+import AvatarImage from "@/components/avatar-image";
+import NotificationBadge from "@/components/notification-badge";
 
 const playerNavigation = [
   { id: "feed", label: "Accueil", icon: BookOpen },
@@ -201,7 +202,7 @@ async function DashboardContent({ tab }: { tab: string }) {
           <span className="dashboard-user-name">{sidebarName}</span>
           <LanguageSwitcher />
           {profile?.avatarUrl
-            ? <Image className="dashboard-avatar" src={profile.avatarUrl} alt="" width={38} height={38} unoptimized />
+            ? <AvatarImage className="dashboard-avatar" src={profile.avatarUrl} alt="" size={38} />
             : <span className="dashboard-avatar dashboard-avatar-initials">{initials}</span>}
           <form action={async () => {
             "use server";
@@ -215,7 +216,7 @@ async function DashboardContent({ tab }: { tab: string }) {
         <aside className="dashboard-sidebar" aria-label={labels.workspaceNavigation}>
           <div className="sidebar-user-card">
             {profile?.avatarUrl
-              ? <Image className="sidebar-avatar" src={profile.avatarUrl} alt="" width={44} height={44} unoptimized />
+              ? <AvatarImage className="sidebar-avatar" src={profile.avatarUrl} alt="" size={44} />
               : <span className="sidebar-avatar sidebar-avatar-initials">{initials}</span>}
             <span className="sidebar-user-copy"><strong>{sidebarName}</strong>{(ownedTenant || role === "SUPER_ADMIN") && <small>{ownedTenant ? `@${ownedTenant.handle}` : labels.superAdminRole}</small>}</span>
             <span className={`sidebar-status-dot ${ownedTenant?.status === "SUSPENDED" ? "suspended" : ""}`} />
@@ -228,7 +229,7 @@ async function DashboardContent({ tab }: { tab: string }) {
               <Link className={`sidebar-link ${currentTab === id ? "active" : ""} ${partnerSectionTabs.has(id) ? "partner-nav-link" : ""}`} href={`/dashboard?tab=${id}`} key={id} aria-current={currentTab === id ? "page" : undefined}>
                 <Icon size={17} />
                 <span>{label}</span>
-                {id === "notifications" && notificationCount > 0 && <span className="nav-count">{notificationCount}</span>}
+                {id === "notifications" && <NotificationBadge initialCount={notificationCount} />}
               </Link>
             ))}
           </DashboardNavigation>
@@ -255,7 +256,17 @@ async function DashboardContent({ tab }: { tab: string }) {
             <div className="agreement-card">
               <span className="section-kicker">{labels.partnerRequestAccepted}</span>
               <h2>{labels.partnerAgreement}</h2>
-              <p className="agreement-content">{ownedTenant.agreements[0].content}</p>
+              <aside className="partner-trial-notice">
+                <ShieldCheck size={19} />
+                <div>
+                  <strong>{labels.partnerTrialTitle}</strong>
+                  <p>{labels.partnerTrialNotice} <b>{labels.partnerTrialSubscriptionPath}</b></p>
+                </div>
+              </aside>
+              <article className="agreement-document">
+                <header><span>WEB MONDIAL</span><strong>{labels.partnerAgreement}</strong></header>
+                <div className="agreement-content">{ownedTenant.agreements[0].content}</div>
+              </article>
               <DashboardTools role={role} tab="agreement" tenantHandle={ownedTenant.handle} />
             </div>
           )}

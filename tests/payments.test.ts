@@ -3,7 +3,7 @@ import { createHmac } from "node:crypto";
 import test from "node:test";
 import { SasPayPaymentProvider } from "../lib/payments/provider";
 import { isValidSasPayWebhookSignature } from "../lib/payments/webhook-signature";
-import { calculateSubscription, canPublishContent, canPublishPaidContent } from "../lib/subscriptions";
+import { calculateSubscription, canPublishContent, canPublishPaidContent, getPartnerTrialEndDate } from "../lib/subscriptions";
 
 const checkoutSessionId = "c9a17e2c-4b1a-4f0e-9c3d-2a1b3c4d5e6f";
 const transactionId = "9c3f2a10-4b7e-4f1a-9d2e-9b6a7c1e4a02";
@@ -241,4 +241,9 @@ test("partner publishing is allowed only during a live trial or paid period", ()
     false,
   );
   assert.equal(canPublishContent(null, now), false);
+});
+
+test("partner agreement signature starts an exact seven-day free period", () => {
+  const signedAt = new Date("2026-10-18T19:00:00.000Z");
+  assert.equal(getPartnerTrialEndDate(signedAt).toISOString(), "2026-10-25T19:00:00.000Z");
 });

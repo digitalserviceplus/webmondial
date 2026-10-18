@@ -18,6 +18,12 @@ export function calculateSubscription(monthlyPrice: number, paidMonths: number, 
   };
 }
 
+export const PARTNER_TRIAL_DAYS = 7;
+
+export function getPartnerTrialEndDate(startedAt: Date) {
+  return new Date(startedAt.getTime() + PARTNER_TRIAL_DAYS * 24 * 60 * 60_000);
+}
+
 export function canPublishContent(
   subscription: { status: string; currentPeriodEnd: Date; trialEndsAt?: Date | null } | null,
   now = new Date(),

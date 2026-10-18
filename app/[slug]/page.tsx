@@ -12,6 +12,7 @@ import { LinkifiedText } from "@/components/linkified-text";
 import { PostActions } from "@/components/post-actions";
 import { PublicPaidPosts } from "@/components/public-paid-posts";
 import CommunityShare from "@/components/community-share";
+import AvatarImage from "@/components/avatar-image";
 import { getSiteUrl } from "@/lib/site-url";
 
 async function PublicSpace({ slug }: { slug: string }) {
@@ -91,9 +92,9 @@ async function PublicSpace({ slug }: { slug: string }) {
       <div className="profile-cover">
         <span className="cover-label"><T id="publicSpace" /></span>
         <section className="profile-card" aria-label={tenant.displayName}>
-          <div className="profile-avatar">
-            {avatarUrl ? <Image src={avatarUrl} alt="" width={76} height={76} unoptimized /> : initials || <UserRound size={30} />}
-          </div>
+          {avatarUrl
+            ? <AvatarImage className="profile-avatar" src={avatarUrl} alt={`${tenant.displayName} profile`} size={104} />
+            : <div className="profile-avatar">{initials || <UserRound size={30} />}</div>}
           <div className="profile-copy">
             <span className="profile-handle">@{tenant.handle}</span>
             <h1>{tenant.displayName}</h1>
@@ -143,7 +144,7 @@ async function PublicSpace({ slug }: { slug: string }) {
                 </div>
                 {post.title && <h3 className="feed-post-title">{post.title}</h3>}
                 {avatarUrl && <div className="post-publisher">
-                  <Image className="post-publisher-avatar" src={avatarUrl} alt="" width={38} height={38} unoptimized />
+                  <AvatarImage className="post-publisher-avatar" src={avatarUrl} alt="" size={38} />
                   <div className="post-publisher-identity"><strong>{tenant.displayName}</strong><small>@{tenant.handle}</small></div>
                 </div>}
                 <p className="post-content"><LinkifiedText>{post.content}</LinkifiedText></p>

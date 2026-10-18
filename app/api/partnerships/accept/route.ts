@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { getPartnerTrialEndDate } from "@/lib/subscriptions";
 
 const acceptanceSchema = z.object({ accepted: z.literal(true) });
 
@@ -20,7 +21,7 @@ export async function POST(request: Request) {
   await prisma.$transaction(async (tx) => {
     const agreement = await tx.partnershipAgreement.findUnique({
       where: { tenantId: tenant.id },
-      select: { id: true, acceptedAt: true, tenant: { select: { subscription: { select: { id: true, plan: { select: { trialDays: true } } } } } } },
+      select: { id: true, acceptedAt: true, tenant: { select: { subscription: { select: { id: true } } } } },
     });
     if (!agreement) throw new Error("Approved partner agreement was not found.");
     if (!agreement.acceptedAt) {
@@ -35,7 +36,7 @@ export async function POST(request: Request) {
       const now = new Date();
       const subscription = agreement.tenant.subscription;
       if (!subscription) throw new Error("Partner subscription was not created.");
-      const trialEndsAt = new Date(now.getTime() + subscription.plan.trialDays * 24 * 60 * 60_000);
+      const trialEndsAt = getPartnerTrialEndDate(now);
       await tx.subscription.update({
         where: { id: subscription.id },
         data: {
@@ -52,7 +53,7 @@ export async function POST(request: Request) {
           tenantId: tenant.id,
           type: "PARTNERSHIP",
           title: "Votre espace partenaire est activé",
-          body: "Votre période d’essai a commencé. Vous pouvez dès maintenant publier et gérer vos outils.",
+          body: "Votre période gratuite de 7 jours a commencé. Vous pouvez dès maintenant publier et gérer votre espace.",
           href: "/dashboard?tab=posts",
         },
       });

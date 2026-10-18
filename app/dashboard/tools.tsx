@@ -21,6 +21,7 @@ import {
   Trash2,
 } from "lucide-react";
 import PasswordInput from "@/components/password-input";
+import AvatarImage from "@/components/avatar-image";
 import { LinkifiedText } from "@/components/linkified-text";
 import { applyPreferences } from "@/components/theme-provider";
 import { messagesFor } from "@/lib/i18n";
@@ -271,7 +272,7 @@ function Feed({ tenantHandle, category, managePosts = false, refreshToken = 0 }:
             <article className="post-card" id={`post-${post.id}`} key={post.id}>
               {tenantProfile && <div className="post-publisher">
                 {tenantProfile.avatarUrl
-                  ? <Image className="post-publisher-avatar" src={tenantProfile.avatarUrl} alt="" width={38} height={38} unoptimized />
+                  ? <AvatarImage className="post-publisher-avatar" src={tenantProfile.avatarUrl} alt="" size={38} />
                   : <span className="post-publisher-avatar post-publisher-initial">{tenantProfile.displayName.slice(0, 1).toUpperCase()}</span>}
                 <div className="post-publisher-identity"><strong>{tenantProfile.displayName}</strong><small>@{tenantProfile.handle}</small></div>
                 <div className="post-publisher-actions">
@@ -418,6 +419,7 @@ function PostComposer({
 
 function PartnerApplication() {
   const labels = messagesFor(useLanguage());
+  const router = useRouter();
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -429,17 +431,15 @@ function PartnerApplication() {
       await sendJson("/api/partnerships", "POST", {
         requestedDisplayName: String(form.get("displayName")),
         requestedHandle: String(form.get("handle")),
-        bio: String(form.get("bio") ?? ""),
       });
-      setMessage(labels.partnerRequestSent);
-      formElement.reset();
+      router.push("/dashboard?tab=agreement");
     } catch (cause) {
       setMessage(cause instanceof Error ? cause.message : labels.sendFailed);
     } finally {
       setBusy(false);
     }
   }
-  return <section className="tool-section"><h2>{labels.partner}</h2><p className="panel-description">{labels.partnerIntro}</p><Message value={message} onClose={() => setMessage("")} /><form className="panel-form" onSubmit={submit}><label>{labels.desiredPublicName}<input className="text-field" name="displayName" required minLength={2} maxLength={80} /></label><label>{labels.desiredHandle}<input className="text-field" name="handle" required pattern="[a-zA-Z0-9-]+" maxLength={40} placeholder={labels.workspacePlaceholder} /><small>{labels.handleFormat}</small></label><label>{labels.presentation}<textarea className="text-field text-area" name="bio" maxLength={1000} rows={4} /></label><button className="button button-lime" disabled={busy}>{busy ? labels.sending : labels.sendPartnerRequest} <ArrowRight size={15} /></button></form></section>;
+  return <section className="tool-section"><h2>{labels.partner}</h2><p className="panel-description">{labels.partnerIntro}</p><Message value={message} onClose={() => setMessage("")} /><form className="panel-form" onSubmit={submit}><label>{labels.desiredPublicName}<input className="text-field" name="displayName" required minLength={2} maxLength={80} /></label><label>{labels.desiredHandle}<input className="text-field" name="handle" required pattern="[a-zA-Z0-9-]+" maxLength={40} placeholder={labels.workspacePlaceholder} /><small>{labels.handleFormat}</small></label><button className="button button-lime" disabled={busy}>{busy ? labels.sending : labels.confirmPartner} <ArrowRight size={15} /></button></form></section>;
 }
 
 function Agreement({ tenantHandle }: { tenantHandle: string }) {
@@ -1105,7 +1105,18 @@ function NotificationPanel() {
       setMessage(cause instanceof Error ? cause.message : labels.loadingGeneric);
     }
   }, [labels.loadingGeneric]);
-  useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => {
+    void refresh();
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === "visible") void refresh();
+    }, 15_000);
+    const refreshOnFocus = () => { if (document.visibilityState === "visible") void refresh(); };
+    document.addEventListener("visibilitychange", refreshOnFocus);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", refreshOnFocus);
+    };
+  }, [refresh]);
   async function markRead(id: string) {
     try {
       await sendJson("/api/notifications", "PATCH", { id });
