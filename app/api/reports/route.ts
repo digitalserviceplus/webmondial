@@ -3,6 +3,7 @@ import { z } from "zod";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { rateLimit, requestKey } from "@/lib/rate-limit";
+import { hasBeenOnPlatformForMoreThanThreeMonths } from "@/lib/report-eligibility";
 
 const reportSchema = z.object({
   tenantHandle: z.string().trim().toLowerCase().min(1).max(40),
@@ -14,11 +15,18 @@ export async function POST(request: Request) {
   const session = await auth();
   if (!session?.user) return NextResponse.json({ error: "Connectez-vous pour envoyer un signalement." }, { status: 401 });
   if (session.user.role !== "PLAYER") return NextResponse.json({ error: "Cette action est réservée aux joueurs." }, { status: 403 });
+  const parsed = reportSchema.safeParse(await request.json().catch(() => null));
+  if (!parsed.success) return NextResponse.json({ error: "Vérifiez le signalement.", fields: parsed.error.flatten().fieldErrors }, { status: 400 });
+  const player = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { createdAt: true },
+  });
+  if (!player || !hasBeenOnPlatformForMoreThanThreeMonths(player.createdAt)) {
+    return NextResponse.json({ error: "Le signalement d’un administrateur est disponible après plus de trois mois sur la plateforme." }, { status: 403 });
+  }
   if (!(await rateLimit(requestKey(request, `report:${session.user.id}`), 5, 60 * 60_000))) {
     return NextResponse.json({ error: "Trop de signalements. Réessayez plus tard." }, { status: 429 });
   }
-  const parsed = reportSchema.safeParse(await request.json().catch(() => null));
-  if (!parsed.success) return NextResponse.json({ error: "Vérifiez le signalement.", fields: parsed.error.flatten().fieldErrors }, { status: 400 });
   const tenant = await prisma.tenant.findFirst({
     where: {
       handle: parsed.data.tenantHandle,

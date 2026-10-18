@@ -9,7 +9,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test tests/validation.test.ts tests/media.test.ts tests/payments.test.ts",
+    "test": "tsx --test tests/validation.test.ts tests/media.test.ts tests/payments.test.ts tests/report-eligibility.test.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",

@@ -60,6 +60,14 @@ export async function PATCH(
         ? contractData.version
         : "1.0";
     const now = new Date();
+    const applicantDetails = [
+      "",
+      "",
+      "Informations du demandeur",
+      `Nom complet : ${application.user.name}`,
+      `Nom de profil : ${application.requestedDisplayName} (@${application.requestedHandle})`,
+      `Date de la demande : ${application.createdAt.toISOString().slice(0, 10)}`,
+    ].join("\n");
     await tx.subscription.create({
       data: {
         userId: application.userId,
@@ -75,7 +83,7 @@ export async function PATCH(
         userId: application.userId,
         tenantId: tenant.id,
         version: contractVersion,
-        content: contract,
+        content: `${contract.trimEnd()}${applicantDetails}`,
       },
     });
     if (application.user.role === "PLAYER") {

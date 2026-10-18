@@ -90,7 +90,7 @@ async function PublicSpace({ slug }: { slug: string }) {
 
       <div className="profile-cover">
         <span className="cover-label"><T id="publicSpace" /></span>
-        <div className="profile-card">
+        <section className="profile-card" aria-label={tenant.displayName}>
           <div className="profile-avatar">
             {avatarUrl ? <Image src={avatarUrl} alt="" width={76} height={76} unoptimized /> : initials || <UserRound size={30} />}
           </div>
@@ -101,11 +101,13 @@ async function PublicSpace({ slug }: { slug: string }) {
               ? <p>{biography}</p>
               : <p><T id="defaultTenantBio" /></p>}
           </div>
-          <Link className="button button-lime profile-join" href={`/inscription?tenant=${tenant.handle}`}>
-            <T id="joinSpace" /> <ArrowRight size={16} />
-          </Link>
-          <CommunityShare url={publicUrl} title={`${tenant.displayName} — Web Mondial`} />
-        </div>
+          <div className="profile-actions">
+            <Link className="button button-lime profile-join" href={`/inscription?tenant=${tenant.handle}`}>
+              <T id="joinSpace" /> <ArrowRight size={16} />
+            </Link>
+            <CommunityShare url={publicUrl} title={`${tenant.displayName} — Web Mondial`} />
+          </div>
+        </section>
       </div>
 
       <section className="profile-feed">
@@ -142,7 +144,7 @@ async function PublicSpace({ slug }: { slug: string }) {
                 {post.title && <h3 className="feed-post-title">{post.title}</h3>}
                 {avatarUrl && <div className="post-publisher">
                   <Image className="post-publisher-avatar" src={avatarUrl} alt="" width={38} height={38} unoptimized />
-                  <div><strong>{tenant.displayName}</strong><small>@{tenant.handle}</small></div>
+                  <div className="post-publisher-identity"><strong>{tenant.displayName}</strong><small>@{tenant.handle}</small></div>
                 </div>}
                 <p className="post-content"><LinkifiedText>{post.content}</LinkifiedText></p>
                 {post.mediaUrl && post.mediaType === "IMAGE" && <Image className="post-media post-media-image" src={post.mediaUrl} alt="" width={1200} height={900} unoptimized />}

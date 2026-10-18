@@ -26,6 +26,7 @@ import DashboardTools from "./tools";
 import DashboardNavigation from "./dashboard-navigation";
 import { messagesFor } from "@/lib/i18n";
 import { annualSubscriptionCutoff, canPublishContent, canPublishPaidContent } from "@/lib/subscriptions";
+import { hasBeenOnPlatformForMoreThanThreeMonths } from "@/lib/report-eligibility";
 
 const playerNavigation = [
   { id: "feed", label: "Accueil", icon: BookOpen },
@@ -123,7 +124,7 @@ async function DashboardContent({ tab }: { tab: string }) {
       }),
       prisma.user.findUnique({
         where: { id: session.user.id },
-        select: { name: true, avatarUrl: true },
+        select: { name: true, avatarUrl: true, createdAt: true },
       }),
       session.user.role === "ADMIN"
         ? prisma.payment.findFirst({
@@ -148,6 +149,9 @@ async function DashboardContent({ tab }: { tab: string }) {
     annualPayment?.processedAt ?? null,
     serverNow,
   );
+  const canReportAdmin = role === "PLAYER"
+    && profile?.createdAt !== undefined
+    && hasBeenOnPlatformForMoreThanThreeMonths(profile.createdAt, serverNow);
   const canPublish = role === "SUPER_ADMIN" || canPublishContent(ownedTenant?.subscription ?? null, serverNow);
   const rawNavigation = role === "SUPER_ADMIN" ? superAdminNavigation : role === "ADMIN" ? adminNavigation : playerNavigation;
   const labelForId: Record<string, string> = {
@@ -251,7 +255,7 @@ async function DashboardContent({ tab }: { tab: string }) {
             <div className="agreement-card">
               <span className="section-kicker">{labels.partnerRequestAccepted}</span>
               <h2>{labels.partnerAgreement}</h2>
-              <p>{ownedTenant.agreements[0].content}</p>
+              <p className="agreement-content">{ownedTenant.agreements[0].content}</p>
               <DashboardTools role={role} tab="agreement" tenantHandle={ownedTenant.handle} />
             </div>
           )}
@@ -300,7 +304,7 @@ async function DashboardContent({ tab }: { tab: string }) {
             currentTab === "partner"
               ? <DashboardTools role={role} tab={currentTab} />
               : memberships.length > 0
-              ? <DashboardTools role={role} tab={currentTab} tenantHandle={memberships[0].tenant.handle} tenantName={memberships[0].tenant.displayName} />
+              ? <DashboardTools role={role} tab={currentTab} tenantHandle={memberships[0].tenant.handle} tenantName={memberships[0].tenant.displayName} canReportAdmin={canReportAdmin} />
               : <div className="empty-feed dashboard-empty">
                   <span className="empty-icon"><Trophy size={20} /></span>
                   <h2>{labels.joinCommunityTitle}</h2>

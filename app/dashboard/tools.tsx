@@ -273,9 +273,11 @@ function Feed({ tenantHandle, category, managePosts = false, refreshToken = 0 }:
                 {tenantProfile.avatarUrl
                   ? <Image className="post-publisher-avatar" src={tenantProfile.avatarUrl} alt="" width={38} height={38} unoptimized />
                   : <span className="post-publisher-avatar post-publisher-initial">{tenantProfile.displayName.slice(0, 1).toUpperCase()}</span>}
-                <div><strong>{tenantProfile.displayName}</strong><small>@{tenantProfile.handle}</small></div>
-                <Link href={`/${tenantProfile.handle}`} target="_blank">{labels.publicProfile} <ExternalLink size={13} /></Link>
-                <button className="text-action" type="button" onClick={() => void shareCommunity()}><Copy size={14} /> {labels.copyCommunityLink}</button>
+                <div className="post-publisher-identity"><strong>{tenantProfile.displayName}</strong><small>@{tenantProfile.handle}</small></div>
+                <div className="post-publisher-actions">
+                  <Link className="button button-primary button-small" href={`/${tenantProfile.handle}`} target="_blank">{labels.publicProfile} <ExternalLink size={13} /></Link>
+                  <button className="button button-dark button-small" type="button" onClick={() => void shareCommunity()}><Copy size={14} /> {labels.copyCommunityLink}</button>
+                </div>
               </div>}
               <div className="post-meta"><span className="post-category">{({
                 DAILY: labels.dailyPost, PREMIUM: labels.premiumPost, MONTANTE: labels.montantePost,
@@ -1090,13 +1092,26 @@ function SettingsPanel() {
 function NotificationPanel() {
   const language = useLanguage();
   const labels = messagesFor(language);
+  const router = useRouter();
   const [items, setItems] = useState<Array<{ id: string; title: string; body: string; href: string | null; readAt: string | null; createdAt: string }>>([]);
   const [message, setMessage] = useState("");
   const locale = language === "en" ? "en-GB" : language === "es" ? "es-ES" : "fr-FR";
-  const refresh = useCallback(() => { void sendJson("/api/notifications", "GET").then((result) => setItems(result.notifications as typeof items)).catch((cause) => setMessage(cause instanceof Error ? cause.message : labels.loadingGeneric)); }, [labels.loadingGeneric]);
-  useEffect(() => { refresh(); }, [refresh]);
+  const refresh = useCallback(async () => {
+    try {
+      const result = await sendJson("/api/notifications", "GET");
+      setItems(result.notifications as typeof items);
+      setMessage("");
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : labels.loadingGeneric);
+    }
+  }, [labels.loadingGeneric]);
+  useEffect(() => { void refresh(); }, [refresh]);
   async function markRead(id: string) {
-    try { await sendJson("/api/notifications", "PATCH", { id }); refresh(); }
+    try {
+      await sendJson("/api/notifications", "PATCH", { id });
+      await refresh();
+      router.refresh();
+    }
     catch (cause) { setMessage(cause instanceof Error ? cause.message : labels.saveGeneric); }
   }
   return <section className="tool-section"><h2>{labels.notificationsTitle}</h2><Message value={message} onClose={() => setMessage("")} /><div className="admin-list">{items.map((item) => <article className={`notification-card ${item.readAt ? "" : "unread"}`} key={item.id}><Bell size={16} /><div><strong>{item.title}</strong><p>{item.body}</p><small>{new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(new Date(item.createdAt))}</small>{item.href && <Link href={item.href}>{labels.open} <ArrowRight size={13} /></Link>}</div>{!item.readAt && <button className="button button-dark button-small" onClick={() => void markRead(item.id)}>{labels.markAsRead}</button>}</article>)}</div>{items.length === 0 && <p className="panel-description">{labels.noNotifications}</p>}</section>;
@@ -1126,6 +1141,7 @@ export default function DashboardTools({
   subscription = null,
   canPublish = role === "SUPER_ADMIN",
   canPublishPaid = role === "SUPER_ADMIN",
+  canReportAdmin = false,
 }: {
   role: string;
   tab: string;
@@ -1133,6 +1149,7 @@ export default function DashboardTools({
   tenantName?: string;
   canPublish?: boolean;
   canPublishPaid?: boolean;
+  canReportAdmin?: boolean;
   subscription?: {
     status: string;
     paidMonths: number;
@@ -1177,16 +1194,16 @@ export default function DashboardTools({
     }
     return <ResultsManager tenantHandle={tenantHandle} />;
   }
-  if (role === "SUPER_ADMIN" && ["overview", "admins", "applications", "reports", "identifier-requests", "notifications", "settings"].includes(tab)) {
+  if (tab === "notifications") return <NotificationPanel />;
+  if (role === "SUPER_ADMIN" && ["overview", "admins", "applications", "reports", "identifier-requests", "settings"].includes(tab)) {
     return <AdminTools tab={tab} />;
   }
   if (tab === "settings") return <SettingsPanel />;
-  if (tab === "notifications") return <NotificationPanel />;
   if (role === "ADMIN" && tab === "subscription") return <SubscriptionPanel subscription={subscription} />;
   if (role === "ADMIN" && tab === "support") return <section className="tool-section"><h2>{labels.assistance}</h2><p className="panel-description">{labels.supportHelp}</p></section>;
   if (role === "PLAYER" && tab === "bookmakers") return <BookmakerManager canManage={false} />;
   if (role === "PLAYER" && tab === "partner") return <PartnerApplication />;
   if (role === "PLAYER" && tenantHandle && tab === "results") return <ResultsFeed tenantHandle={tenantHandle} />;
-  if (role === "PLAYER" && tenantHandle) return <><Feed tenantHandle={tenantHandle} category={["DAILY", "PREMIUM", "MONTANTE", "VIP", "FIXED", "GROSSE_COTE"].includes(tab) ? tab : undefined} />{tab === "feed" && <ReportForm tenantHandle={tenantHandle} />}</>;
+  if (role === "PLAYER" && tenantHandle) return <><Feed tenantHandle={tenantHandle} category={["DAILY", "PREMIUM", "MONTANTE", "VIP", "FIXED", "GROSSE_COTE"].includes(tab) ? tab : undefined} />{tab === "feed" && canReportAdmin && <ReportForm tenantHandle={tenantHandle} />}</>;
   return <div className="empty-feed"><span className="empty-icon"><ShieldCheck size={20} /></span><h3>{labels.emptyDashboardTitle}</h3><p>{labels.emptyDashboardDescription}</p></div>;
 }
