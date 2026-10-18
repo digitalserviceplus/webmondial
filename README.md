@@ -1,6 +1,6 @@
 # Web Mondial
 
-Web Mondial is a multi-tenant sports-pronostics community platform built with Next.js App Router, TypeScript, PostgreSQL, Prisma, and Auth.js.
+Web Mondial is a multi-tenant sports community platform built with Next.js App Router, TypeScript, PostgreSQL, Prisma, and Auth.js.
 
 ## Implemented workflows
 
