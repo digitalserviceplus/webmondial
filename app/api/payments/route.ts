@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { getPaymentProvider, SasPayPaymentProvider } from "@/lib/payments/provider";
 import { calculateSubscription } from "@/lib/subscriptions";
 import { rateLimit, requestKey } from "@/lib/rate-limit";
+import { countryCodeFromValue } from "@/lib/countries";
 
 const paymentSchema = z.union([
   z.object({
@@ -128,7 +129,7 @@ export async function POST(request: Request) {
   const payer = isSasPay
     ? await prisma.user.findUnique({
         where: { id: session.user.id },
-        select: { email: true, name: true },
+        select: { email: true, name: true, country: true },
       })
     : null;
   if (isSasPay && !payer?.email) {
@@ -192,6 +193,7 @@ export async function POST(request: Request) {
       description: paymentInput.title,
       customerEmail: payer?.email ?? "",
       customerName: payer?.name ?? "",
+      country: countryCodeFromValue(payer?.country ?? "", "fr") || undefined,
       returnUrl,
     });
   } catch (error) {

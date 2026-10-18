@@ -32,7 +32,7 @@ export default function Home() {
         </Link>
         <nav className="header-nav" aria-label="Navigation principale">
           <Link href="#fonctionnement"><T id="homeDiscover" /></Link>
-          <Link href="/connexion"><T id="login" /></Link>
+          <Link className="button button-small button-primary header-login" href="/connexion"><T id="login" /></Link>
           <LanguageSwitcher />
           <Link className="button button-small button-primary" href="/inscription?type=partner">
             <T id="becomePartner" /> <ArrowRight size={15} />
@@ -98,6 +98,7 @@ export default function Home() {
         </Link>
         <span><T id="footerMotto" /></span>
         <Link href="/inscription?type=partner"><T id="becomePartner" /></Link>
+        <small className="footer-copyright"><T id="allRightsReserved" /></small>
       </footer>
     </main>
   );

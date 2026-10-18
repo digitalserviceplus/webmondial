@@ -8,6 +8,7 @@ export type PaymentCheckoutRequest = {
   customerEmail: string;
   customerName: string;
   returnUrl: string;
+  country?: string;
 };
 
 export type PaymentCheckoutResult = {
@@ -93,6 +94,7 @@ export class SasPayPaymentProvider implements PaymentProvider {
         description: input.description,
         customer_email: input.customerEmail,
         customer_name: input.customerName,
+        ...(input.country ? { country: input.country } : {}),
         return_url: input.returnUrl,
         metadata: { webmondial_payment_id: input.paymentId },
       }),

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import ThemeProvider from "@/components/theme-provider";
+import ScrollToTop from "@/components/scroll-to-top";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -13,7 +14,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="fr" data-theme="dark" data-scroll-behavior="smooth">
-      <body><ThemeProvider />{children}</body>
+      <body><ThemeProvider />{children}<ScrollToTop /></body>
     </html>
   );
 }

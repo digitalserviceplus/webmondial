@@ -135,7 +135,7 @@ export function PublicPaidPosts({ tenantHandle }: { tenantHandle: string }) {
           {post.mediaUrl && post.mediaType === "IMAGE" && <Image className="post-media post-media-image" src={post.mediaUrl} alt="" width={1200} height={900} unoptimized />}
           {post.mediaUrl && post.mediaType === "VIDEO" && <video className="post-media post-media-video" src={post.mediaUrl} controls preload="metadata" />}
         </>}
-        <PostActions postId={post.id} href={`/${tenantHandle}#post-${post.id}`} initialLikes={post._count.likes} initialLiked={post.liked} allowLike={false} />
+        <PostActions postId={post.id} href={`/${tenantHandle}#post-${post.id}`} initialLikes={post._count.likes} initialLiked={post.liked} />
       </article>)}</div>}
   </section>;
 }

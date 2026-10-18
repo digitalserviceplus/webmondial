@@ -49,9 +49,6 @@ export async function GET(
     return mediaResponse(bytes, metadata.contentType);
   }
 
-  if (!session?.user) {
-    return NextResponse.json({ error: "Connectez-vous pour consulter les actualités et leurs médias." }, { status: 401 });
-  }
   if (!metadata.tenantId) return NextResponse.json({ error: "Média introuvable." }, { status: 404 });
   const posts = await prisma.post.findMany({
     where: {
@@ -73,7 +70,6 @@ export async function GET(
 
   let authorized = false;
   const relatedPosts = [...posts, ...results.map(({ post }) => post)];
-  if (results.length > 0) authorized = true;
   for (const post of relatedPosts) {
     if (authorized) break;
     if (await canViewTenantPost({
@@ -88,7 +84,7 @@ export async function GET(
     }
   }
 
-  if (posts.length === 0 && session?.user) {
+  if (posts.length === 0 && results.length === 0 && session?.user) {
     const tenant = await prisma.tenant.findUnique({
       where: { id: metadata.tenantId },
       select: { ownerId: true, status: true },

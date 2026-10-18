@@ -35,6 +35,7 @@ test("SasPay checkout uses the documented hosted-session fields and keeps the ke
     description: "Abonnement partenaire",
     customerEmail: "player@example.com",
     customerName: "Awa Sossou",
+    country: "BJ",
     returnUrl: "https://webmondial.example/paiement/retour?paymentId=local-payment-id",
   });
 
@@ -44,9 +45,33 @@ test("SasPay checkout uses the documented hosted-session fields and keeps the ke
   assert.equal(body.amount, "2500.00");
   assert.equal(body.customer_email, "player@example.com");
   assert.equal(body.customer_name, "Awa Sossou");
+  assert.equal(body.country, "BJ");
   assert.deepEqual(body.metadata, { webmondial_payment_id: "local-payment-id" });
   assert.equal(result.providerPaymentId, checkoutSessionId);
   assert.equal(result.checkoutUrl, "https://pay.saspay.me/checkout/checkout-slug");
+});
+
+test("SasPay checkout leaves country selection to SasPay when no country is known", async () => {
+  let requestInit: RequestInit | undefined;
+  const provider = new SasPayPaymentProvider("sk_test_example", async (_input, init) => {
+    requestInit = init;
+    return response({
+      id: checkoutSessionId,
+      checkout_url: "https://pay.saspay.me/checkout/checkout-slug",
+      status: "PENDING",
+    }, 201);
+  });
+  await provider.createCheckout({
+    paymentId: "local-payment-id",
+    amount: 2500,
+    currency: "XOF",
+    description: "Abonnement partenaire",
+    customerEmail: "player@example.com",
+    customerName: "Awa Sossou",
+    returnUrl: "https://webmondial.example/paiement/retour",
+  });
+  const body = JSON.parse(String(requestInit?.body)) as Record<string, unknown>;
+  assert.equal("country" in body, false);
 });
 
 test("SasPay checkout accepts provider-owned payment hosts and rejects lookalike domains", async () => {

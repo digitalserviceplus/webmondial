@@ -3,6 +3,7 @@
 import { useEffect, useState, type InputHTMLAttributes } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { strongPasswordPattern } from "@/lib/validation";
+import { messagesFor } from "@/lib/i18n";
 
 export default function PasswordInput(props: InputHTMLAttributes<HTMLInputElement>) {
   const [visible, setVisible] = useState(false);
@@ -19,7 +20,7 @@ export default function PasswordInput(props: InputHTMLAttributes<HTMLInputElemen
     ? {
         pattern: strongPasswordPattern,
         maxLength: props.maxLength ?? 128,
-        title: props.title ?? "12 caractères minimum, avec une majuscule, une minuscule et un chiffre.",
+        title: props.title ?? messagesFor(language).passwordRequirementsShort,
       }
     : {};
   return (

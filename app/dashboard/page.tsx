@@ -21,8 +21,9 @@ import {
 import { signOut, auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { ensureGeneralAdminTenant } from "@/lib/admin-general-tenant";
-import LanguageSwitcher from "@/components/language-switcher";
+import LanguageSwitcher, { T } from "@/components/language-switcher";
 import DashboardTools from "./tools";
+import DashboardNavigation from "./dashboard-navigation";
 import { messagesFor } from "@/lib/i18n";
 import { annualSubscriptionCutoff, canPublishContent, canPublishPaidContent } from "@/lib/subscriptions";
 
@@ -150,6 +151,7 @@ async function DashboardContent({ tab }: { tab: string }) {
   const canPublish = role === "SUPER_ADMIN" || canPublishContent(ownedTenant?.subscription ?? null, serverNow);
   const rawNavigation = role === "SUPER_ADMIN" ? superAdminNavigation : role === "ADMIN" ? adminNavigation : playerNavigation;
   const labelForId: Record<string, string> = {
+    feed: labels.homeTab,
     overview: labels.overview,
     posts: labels.posts,
     DAILY: labels.daily,
@@ -201,12 +203,12 @@ async function DashboardContent({ tab }: { tab: string }) {
             "use server";
             await signOut({ redirectTo: "/" });
           }}>
-            <button className="icon-button" type="submit" aria-label="Se déconnecter"><LogOut size={18} /></button>
+            <button className="icon-button" type="submit" aria-label={labels.logout}><LogOut size={18} /></button>
           </form>
         </div>
       </header>
       <div className="dashboard-layout">
-        <aside className="dashboard-sidebar" aria-label="Navigation de l’espace">
+        <aside className="dashboard-sidebar" aria-label={labels.workspaceNavigation}>
           <div className="sidebar-user-card">
             {profile?.avatarUrl
               ? <Image className="sidebar-avatar" src={profile.avatarUrl} alt="" width={44} height={44} unoptimized />
@@ -214,8 +216,10 @@ async function DashboardContent({ tab }: { tab: string }) {
             <span className="sidebar-user-copy"><strong>{sidebarName}</strong>{(ownedTenant || role === "SUPER_ADMIN") && <small>{ownedTenant ? `@${ownedTenant.handle}` : labels.superAdminRole}</small>}</span>
             <span className={`sidebar-status-dot ${ownedTenant?.status === "SUSPENDED" ? "suspended" : ""}`} />
           </div>
-          <div className="sidebar-caption">{labels.menu}</div>
-          <nav className="dashboard-navigation">
+          <DashboardNavigation
+            caption={labels.menu}
+            currentLabel={navigation.find((item) => item.id === currentTab)?.label ?? labels.menu}
+          >
             {navigation.map(({ id, label, icon: Icon }) => (
               <Link className={`sidebar-link ${currentTab === id ? "active" : ""} ${partnerSectionTabs.has(id) ? "partner-nav-link" : ""}`} href={`/dashboard?tab=${id}`} key={id} aria-current={currentTab === id ? "page" : undefined}>
                 <Icon size={17} />
@@ -223,14 +227,14 @@ async function DashboardContent({ tab }: { tab: string }) {
                 {id === "notifications" && notificationCount > 0 && <span className="nav-count">{notificationCount}</span>}
               </Link>
             ))}
-          </nav>
+          </DashboardNavigation>
           {role === "SUPER_ADMIN" && <div className="sidebar-role"><ShieldCheck size={15} /> {labels.superAdminRole}</div>}
-          {ownedTenant && <Link className="sidebar-public-link" href={`/${ownedTenant.handle}`} target="_blank">Voir le profil public <ArrowRight size={14} /></Link>}
+          {ownedTenant && <Link className="sidebar-public-link" href={`/${ownedTenant.handle}`} target="_blank">{labels.publicProfile} <ArrowRight size={14} /></Link>}
         </aside>
         <section className="dashboard-main">
           <div className="dashboard-heading">
             <div>
-              <span className="section-kicker">{role === "SUPER_ADMIN" ? labels.generalAdmin : ownedTenant ? `@${ownedTenant.handle}` : "VOTRE ESPACE WEB MONDIAL"}</span>
+              <span className="section-kicker">{role === "SUPER_ADMIN" ? labels.generalAdmin : ownedTenant ? `@${ownedTenant.handle}` : labels.dashboardSpaceFallback}</span>
               <h1>{currentTab === "feed" ? `${labels.greeting}, ${userName.split(" ")[0]}.` : navigation.find((item) => item.id === currentTab)?.label}</h1>
               {role !== "PLAYER" && <p>{labels.adminSubtitle}</p>}
             </div>
@@ -239,14 +243,14 @@ async function DashboardContent({ tab }: { tab: string }) {
 
           {ownedTenant?.status === "SUSPENDED" && (
             <div className="dashboard-alert" role="status">
-              <strong>Compte suspendu</strong>
-              <span>{ownedTenant.suspensionReason || "Contactez l’administration pour en savoir plus."}</span>
+              <strong>{labels.suspendedAccount}</strong>
+              <span>{ownedTenant.suspensionReason || labels.suspendedContact}</span>
             </div>
           )}
           {ownedTenant?.status === "PENDING" && ownedTenant.agreements[0] && !ownedTenant.agreements[0].acceptedAt && (
             <div className="agreement-card">
-              <span className="section-kicker">VOTRE DEMANDE A ÉTÉ ACCEPTÉE</span>
-              <h2>Conditions du programme partenaire</h2>
+              <span className="section-kicker">{labels.partnerRequestAccepted}</span>
+              <h2>{labels.partnerAgreement}</h2>
               <p>{ownedTenant.agreements[0].content}</p>
               <DashboardTools role={role} tab="agreement" tenantHandle={ownedTenant.handle} />
             </div>
@@ -254,31 +258,31 @@ async function DashboardContent({ tab }: { tab: string }) {
 
           {role === "SUPER_ADMIN" && currentTab === "overview" && (
             <div className="dashboard-stats">
-              <article><span>Partenaires</span><strong>{adminCount}</strong><Users size={18} /></article>
-              <article><span>Joueurs</span><strong>{playerCount}</strong><CircleUserRound size={18} /></article>
-              <article><span>Publications actives</span><strong>{postCount}</strong><Megaphone size={18} /></article>
-              <article><span>Signalements ouverts</span><strong>{reportsCount}</strong><Flag size={18} /></article>
+              <article><span>{labels.partners}</span><strong>{adminCount}</strong><Users size={18} /></article>
+              <article><span>{labels.players}</span><strong>{playerCount}</strong><CircleUserRound size={18} /></article>
+              <article><span>{labels.activePosts}</span><strong>{postCount}</strong><Megaphone size={18} /></article>
+              <article><span>{labels.openReports}</span><strong>{reportsCount}</strong><Flag size={18} /></article>
             </div>
           )}
 
           {ownedTenant && role !== "PLAYER" && currentTab === "overview" && (
             <>
               {ownedTenant.subscription && new Date(ownedTenant.subscription.currentPeriodEnd).getTime() - serverNow.getTime() < 7 * 86400_000 && new Date(ownedTenant.subscription.currentPeriodEnd) > serverNow && (
-                <div className="expiration-banner">Votre abonnement expire bientôt. <Link href="/dashboard?tab=subscription">Renouveler maintenant</Link></div>
+                <div className="expiration-banner">{labels.subscriptionExpiringSoon} <Link href="/dashboard?tab=subscription">{labels.renewNow}</Link></div>
               )}
               {ownedTenant.subscription && (
                 (ownedTenant.subscription.status === "EXPIRED" || ownedTenant.subscription.currentPeriodEnd <= serverNow) && (
-                  <div className="dashboard-alert"><strong>Votre essai ou abonnement est expiré.</strong><Link href="/dashboard?tab=subscription">Renouveler mon abonnement</Link></div>
+                  <div className="dashboard-alert"><strong>{labels.trialOrSubscriptionExpired}</strong><Link href="/dashboard?tab=subscription">{labels.renewSubscription}</Link></div>
                 )
               )}
               <div className="dashboard-stats">
-                <article><span>Joueurs</span><strong>{ownedTenant._count.members}</strong><Users size={18} /></article>
-                <article><span>Publications</span><strong>{ownedTenant._count.posts}</strong><Megaphone size={18} /></article>
-                <article><span>{role === "SUPER_ADMIN" ? "Accès plateforme" : "Abonnement"}</span><strong className="stat-small">{role === "SUPER_ADMIN" ? "Complet · gratuit" : ownedTenant.subscription?.status ?? "À configurer"}</strong><ShieldCheck size={18} /></article>
-                <article><span>{role === "SUPER_ADMIN" ? "Accès partenaire" : "Expire le"}</span><strong className="stat-small">{role === "SUPER_ADMIN" ? "Toutes fonctions" : ownedTenant.subscription ? new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium" }).format(ownedTenant.subscription.currentPeriodEnd) : "—"}</strong><BarChart3 size={18} /></article>
+                <article><span>{labels.players}</span><strong>{ownedTenant._count.members}</strong><Users size={18} /></article>
+                <article><span>{labels.publicationCount}</span><strong>{ownedTenant._count.posts}</strong><Megaphone size={18} /></article>
+                <article><span>{role === "SUPER_ADMIN" ? labels.platformAccess : labels.subscription}</span><strong className="stat-small">{role === "SUPER_ADMIN" ? labels.fullFreeAccess : ownedTenant.subscription?.status ?? labels.notConfigured}</strong><ShieldCheck size={18} /></article>
+                <article><span>{role === "SUPER_ADMIN" ? labels.partnerAccess : labels.expiresOn}</span><strong className="stat-small">{role === "SUPER_ADMIN" ? labels.allFeatures : ownedTenant.subscription ? new Intl.DateTimeFormat(preferences?.language === "en" ? "en-GB" : preferences?.language === "es" ? "es-ES" : "fr-FR", { dateStyle: "medium" }).format(ownedTenant.subscription.currentPeriodEnd) : "—"}</strong><BarChart3 size={18} /></article>
               </div>
               {role === "ADMIN" && <div className="admin-actions dashboard-quick-actions">
-                <Link className="button button-dark" href="/dashboard?tab=subscription">Voir / payer mon abonnement <ArrowRight size={15} /></Link>
+                <Link className="button button-dark" href="/dashboard?tab=subscription">{labels.viewPaySubscription} <ArrowRight size={15} /></Link>
               </div>}
               {ownedTenant.status === "ACTIVE" && (role === "SUPER_ADMIN" || currentTab !== "overview") && <DashboardTools role={role} tab={currentTab} tenantHandle={ownedTenant.handle} tenantName={ownedTenant.displayName} subscription={ownedTenant.subscription} canPublish={canPublish} canPublishPaid={canPublishPaid} />}
             </>
@@ -299,17 +303,18 @@ async function DashboardContent({ tab }: { tab: string }) {
               ? <DashboardTools role={role} tab={currentTab} tenantHandle={memberships[0].tenant.handle} tenantName={memberships[0].tenant.displayName} />
               : <div className="empty-feed dashboard-empty">
                   <span className="empty-icon"><Trophy size={20} /></span>
-                  <h2>Rejoignez votre première communauté.</h2>
-                  <p>Recherchez votre pronostiqueur pour découvrir ses actualités et rejoindre son espace.</p>
-                  <Link href="/" className="button button-lime">Trouver un espace <ArrowRight size={15} /></Link>
+                  <h2>{labels.joinCommunityTitle}</h2>
+                  <p>{labels.joinCommunityDescription}</p>
+                  <Link href="/" className="button button-lime">{labels.findDashboardSpace} <ArrowRight size={15} /></Link>
                 </div>
           )}
         </section>
       </div>
       <footer className="site-footer">
         <Link className="brand brand-footer" href="/"><span className="brand-mark"><Trophy size={16} /></span><span>web<span className="brand-accent">mondial</span></span></Link>
-        <span>Contenus sportifs à titre informatif. Les paris comportent des risques.</span>
-        <Link href="/">Accueil</Link>
+        <span>{labels.dashboardDisclaimer}</span>
+        <Link href="/">{labels.homeLink}</Link>
+        <small className="footer-copyright">© {new Date().getFullYear()} Web Mondial. {labels.allRightsReserved}</small>
       </footer>
     </main>
   );
@@ -321,10 +326,14 @@ export default function DashboardPage({
   searchParams: Promise<{ tab?: string }>;
 }) {
   return (
-    <Suspense fallback={<main className="page-loading">Chargement de votre espace…</main>}>
+    <Suspense fallback={<main className="page-loading"><DashboardLoadingLabel /></main>}>
       <DashboardPageContent searchParams={searchParams} />
     </Suspense>
   );
+}
+
+function DashboardLoadingLabel() {
+  return <T id="loadingWorkspace" />;
 }
 
 async function DashboardPageContent({

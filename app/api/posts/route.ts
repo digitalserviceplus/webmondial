@@ -43,10 +43,6 @@ export async function GET(request: Request) {
   if (!(await rateLimit(requestKey(request, "posts-read"), 90, 60_000))) {
     return NextResponse.json({ error: "Trop de requêtes. Réessayez dans une minute." }, { status: 429 });
   }
-  if (!session?.user) {
-    return NextResponse.json({ error: "Connectez-vous pour consulter les actualités des pronostiqueurs." }, { status: 401 });
-  }
-
   const tenant = await prisma.tenant.findFirst({
     where: { handle, status: "ACTIVE" },
     select: {
@@ -61,12 +57,12 @@ export async function GET(request: Request) {
   if (!tenant) return NextResponse.json({ error: "Espace introuvable." }, { status: 404 });
 
   const isOwnerOrSuperAdmin =
-    session.user.role === "SUPER_ADMIN" ||
-    (session.user.role === "ADMIN" && session.user.id === tenant.ownerId);
+    session?.user.role === "SUPER_ADMIN" ||
+    (session?.user.role === "ADMIN" && session.user.id === tenant.ownerId);
   const isMember =
     isOwnerOrSuperAdmin ||
     Boolean(
-      session.user.id &&
+      session?.user.id &&
         (await prisma.tenantMembership.findUnique({
           where: { tenantId_userId: { tenantId: tenant.id, userId: session.user.id } },
           select: { id: true },
@@ -105,8 +101,12 @@ export async function GET(request: Request) {
       createdAt: true,
       authorId: true,
       _count: { select: { likes: true, ...(isOwnerOrSuperAdmin ? { views: true } : {}) } },
-      likes: { where: { userId: session.user.id }, select: { id: true }, take: 1 },
-      purchases: { where: { userId: session.user.id }, select: { id: true }, take: 1 },
+      likes: session?.user.id
+        ? { where: { userId: session.user.id }, select: { id: true }, take: 1 }
+        : false,
+      purchases: session?.user.id
+        ? { where: { userId: session.user.id }, select: { id: true }, take: 1 }
+        : false,
     },
   });
   const hasMore = posts.length > pageSize;
@@ -114,13 +114,13 @@ export async function GET(request: Request) {
   const responsePosts = await Promise.all(
     page.map(async (post) => {
       const canView = await canViewTenantPost({
-        userId: session.user.id,
-        role: session.user.role,
+        userId: session?.user.id,
+        role: session?.user.role,
         tenantId: tenant.id,
         postId: post.id,
         visibility: post.visibility,
       });
-      const isOwner = post.authorId === session.user.id;
+      const isOwner = post.authorId === session?.user.id;
       const locked = post.visibility === "PAID" && !canView && !isOwner;
       return {
         ...post,
@@ -138,6 +138,7 @@ export async function GET(request: Request) {
   );
 
   if (isMember) {
+    if (!session?.user.id) throw new Error("Authenticated tenant member is missing an account ID.");
     await prisma.publicationView.createMany({
       data: page.map((post) => ({ postId: post.id, userId: session.user.id })),
       skipDuplicates: true,

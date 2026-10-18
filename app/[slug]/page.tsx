@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { io } from "next/cache";
-import { notFound, permanentRedirect, redirect } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
 import type { Metadata } from "next";
 import { ArrowLeft, ArrowRight, CalendarDays, Trophy, UserRound } from "lucide-react";
 import { auth } from "@/auth";
@@ -11,6 +11,8 @@ import LanguageSwitcher, { LocalizedDate, T } from "@/components/language-switch
 import { LinkifiedText } from "@/components/linkified-text";
 import { PostActions } from "@/components/post-actions";
 import { PublicPaidPosts } from "@/components/public-paid-posts";
+import CommunityShare from "@/components/community-share";
+import { getSiteUrl } from "@/lib/site-url";
 
 async function PublicSpace({ slug }: { slug: string }) {
   await io();
@@ -40,7 +42,7 @@ async function PublicSpace({ slug }: { slug: string }) {
         },
       },
       results: {
-        where: { post: { published: true, status: "ACTIVE" } },
+        where: { post: { published: true, status: "ACTIVE", visibility: "PUBLIC" } },
         orderBy: { createdAt: "desc" },
         take: 12,
         select: {
@@ -64,12 +66,10 @@ async function PublicSpace({ slug }: { slug: string }) {
     if (alias?.tenant.status === "ACTIVE") permanentRedirect(`/${alias.tenant.handle}`);
     notFound();
   }
-  if (!session?.user) {
-    const returnTo = `/${tenant.handle}`;
-    redirect(`/connexion?tenant=${encodeURIComponent(tenant.handle)}&returnTo=${encodeURIComponent(returnTo)}`);
-  }
   const initials = tenant.displayName.trim().split(/\s+/).slice(0, 2).map((word) => word[0]).join("").toUpperCase();
   const avatarUrl = tenant.avatarUrl ?? tenant.owner.avatarUrl;
+  const biography = tenant.bio?.trim();
+  const publicUrl = new URL(tenant.handle, getSiteUrl()).toString();
 
   return (
     <main className="public-space">
@@ -81,7 +81,8 @@ async function PublicSpace({ slug }: { slug: string }) {
         <nav className="header-nav">
           <Link href="/"><T id="homeDiscover" /></Link>
           <LanguageSwitcher />
-          <Link className="button button-small button-dark" href={`/inscription?tenant=${tenant.handle}`}>
+          <Link className="button button-small button-primary" href="/connexion"><T id="login" /></Link>
+          <Link className="button button-small button-primary" href={`/inscription?tenant=${tenant.handle}`}>
             <T id="join" /> <ArrowRight size={15} />
           </Link>
         </nav>
@@ -96,11 +97,14 @@ async function PublicSpace({ slug }: { slug: string }) {
           <div className="profile-copy">
             <span className="profile-handle">@{tenant.handle}</span>
             <h1>{tenant.displayName}</h1>
-            <p>{tenant.bio || <T id="defaultTenantBio" />}</p>
+            {biography && biography.toLocaleLowerCase() !== tenant.displayName.trim().toLocaleLowerCase() && biography.toLocaleLowerCase() !== tenant.handle.toLocaleLowerCase()
+              ? <p>{biography}</p>
+              : <p><T id="defaultTenantBio" /></p>}
           </div>
           <Link className="button button-lime profile-join" href={`/inscription?tenant=${tenant.handle}`}>
             <T id="joinSpace" /> <ArrowRight size={16} />
           </Link>
+          <CommunityShare url={publicUrl} title={`${tenant.displayName} — Web Mondial`} />
         </div>
       </div>
 
@@ -173,6 +177,7 @@ async function PublicSpace({ slug }: { slug: string }) {
         </Link>
         <span><T id="publicPoweredBy" /></span>
         <Link href="/connexion"><T id="login" /></Link>
+        <small className="footer-copyright"><T id="allRightsReserved" /></small>
       </footer>
     </main>
   );
@@ -192,8 +197,17 @@ export async function generateMetadata({
   return {
     title: `${tenant.displayName} (@${tenant.handle}) | Web Mondial`,
     description: tenant.bio || `Suivez les actualités de ${tenant.displayName} sur Web Mondial.`,
+    alternates: { canonical: new URL(tenant.handle, getSiteUrl()).toString() },
     openGraph: {
       title: `${tenant.displayName} | Web Mondial`,
+      description: tenant.bio || `Suivez les actualités de ${tenant.displayName} sur Web Mondial.`,
+      url: new URL(tenant.handle, getSiteUrl()).toString(),
+      type: "profile",
+      ...(tenant.avatarUrl || tenant.owner.avatarUrl ? { images: [tenant.avatarUrl ?? tenant.owner.avatarUrl!] } : {}),
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: `${tenant.displayName} (@${tenant.handle}) | Web Mondial`,
       description: tenant.bio || `Suivez les actualités de ${tenant.displayName} sur Web Mondial.`,
       ...(tenant.avatarUrl || tenant.owner.avatarUrl ? { images: [tenant.avatarUrl ?? tenant.owner.avatarUrl!] } : {}),
     },

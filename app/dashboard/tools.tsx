@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { upload } from "@vercel/blob/client";
 import {
@@ -75,14 +75,15 @@ const browserMediaTypes: Record<string, { extension: string; mediaType: "IMAGE" 
 };
 
 async function uploadMediaFile(file: File, purpose: "post" | "avatar", errorMessage: string) {
-  if (file.size > 20 * 1024 * 1024) throw new Error("Le fichier ne doit pas dépasser 20 Mo.");
+  const labels = messagesFor(document.documentElement.lang);
+  if (file.size > 20 * 1024 * 1024) throw new Error(labels.uploadFileTooLarge);
   const supportedType = browserMediaTypes[file.type];
   const isProductionOrigin = window.location.protocol === "https:" &&
     window.location.hostname !== "localhost" &&
     window.location.hostname !== "127.0.0.1";
 
   if (isProductionOrigin) {
-    if (!supportedType) throw new Error("Format de média non pris en charge.");
+    if (!supportedType) throw new Error(labels.unsupportedMedia);
     const id = crypto.randomUUID();
     const pathname = `media/${id}.${supportedType.extension}`;
     const blob = await upload(pathname, file, {
@@ -92,7 +93,7 @@ async function uploadMediaFile(file: File, purpose: "post" | "avatar", errorMess
       contentType: file.type,
       multipart: file.size > 5 * 1024 * 1024,
     });
-    if (blob.pathname !== pathname) throw new Error("Le téléversement a renvoyé un média inattendu.");
+    if (blob.pathname !== pathname) throw new Error(labels.mediaUnexpected);
     return { url: `/api/media/${id}`, mediaType: supportedType.mediaType };
   }
 
@@ -108,8 +109,9 @@ async function uploadMediaFile(file: File, purpose: "post" | "avatar", errorMess
 }
 
 function Message({ value, onClose }: { value: string; onClose: () => void }) {
+  const labels = messagesFor(useLanguage());
   if (!value) return null;
-  return <div className="dashboard-message" role="status"><span>{value}</span><button type="button" onClick={onClose} aria-label="Fermer">×</button></div>;
+  return <div className="dashboard-message" role="status"><span>{value}</span><button type="button" onClick={onClose} aria-label={labels.close}>×</button></div>;
 }
 
 function Feed({ tenantHandle, category, managePosts = false, refreshToken = 0 }: { tenantHandle: string; category?: string; managePosts?: boolean; refreshToken?: number }) {
@@ -249,10 +251,10 @@ function Feed({ tenantHandle, category, managePosts = false, refreshToken = 0 }:
         await load();
         return;
       }
-      if (!result.checkoutUrl) throw new Error("SasPay n’a pas fourni de lien de paiement.");
+      if (!result.checkoutUrl) throw new Error(labels.checkoutUnavailable);
       window.location.assign(result.checkoutUrl);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Impossible de débloquer cette publication.");
+      setError(cause instanceof Error ? cause.message : labels.paidPostPaymentError);
     } finally {
       setUnlockingPostId(null);
     }
@@ -353,7 +355,7 @@ function PostComposer({
       let mediaUrl = String(form.get("mediaUrl") ?? "") || undefined;
       let mediaType = String(form.get("mediaType") ?? "") || undefined;
       if (mediaFile instanceof File && mediaFile.size > 0) {
-        const uploaded = await uploadMediaFile(mediaFile, "post", "Impossible de téléverser le média.");
+        const uploaded = await uploadMediaFile(mediaFile, "post", labels.mediaUploadError);
         mediaUrl = uploaded.url;
         mediaType = uploaded.mediaType;
       }
@@ -372,7 +374,7 @@ function PostComposer({
       setVisibility("TENANT_PLAYERS");
       onPublished();
     } catch (cause) {
-      setMessage(cause instanceof Error ? cause.message : "Publication impossible.");
+      setMessage(cause instanceof Error ? cause.message : labels.publishError);
     } finally {
       setBusy(false);
     }
@@ -380,7 +382,7 @@ function PostComposer({
   return (
     <section className="tool-section">
       <h2>{labels.createPost}</h2>
-      <p className="panel-description">Votre publication sera visible dans l’espace @{tenantHandle} selon son niveau de visibilité.</p>
+      <p className="panel-description">{labels.postVisibilityHint.replace("{handle}", tenantHandle)}</p>
       <Message value={message} onClose={() => setMessage("")} />
       <form className="panel-form" onSubmit={submit}>
         <label>{labels.postTitle} <span>({labels.optional})</span><input className="text-field" name="title" maxLength={180} placeholder={labels.postTitlePlaceholder} /></label>
@@ -404,7 +406,7 @@ function PostComposer({
           <label>{labels.mediaUrl} <span>({labels.optional})</span><input className="text-field" type="url" name="mediaUrl" placeholder="https://…" /></label>
           <label>{labels.postMediaType}<select className="text-field" name="mediaType"><option value="">{labels.noMedia}</option><option value="IMAGE">{labels.image}</option><option value="VIDEO">{labels.video}</option></select></label>
         </div>
-        <label>{labels.uploadMedia} <span>(20 Mo max.)</span><input className="text-field" type="file" name="mediaFile" accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/webm" /></label>
+        <label>{labels.uploadMedia} <span>({labels.maxUploadSize})</span><input className="text-field" type="file" name="mediaFile" accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/webm" /></label>
         <p className="form-legal">{labels.mediaUploadDetails}</p>
         <button className="button button-lime" type="submit" disabled={busy}>{busy ? <LoaderCircle className="spin" size={16} /> : <Plus size={16} />} {labels.publishPost}</button>
       </form>
@@ -430,28 +432,29 @@ function PartnerApplication() {
       setMessage(labels.partnerRequestSent);
       formElement.reset();
     } catch (cause) {
-      setMessage(cause instanceof Error ? cause.message : "Envoi impossible.");
+      setMessage(cause instanceof Error ? cause.message : labels.sendFailed);
     } finally {
       setBusy(false);
     }
   }
-  return <section className="tool-section"><h2>{labels.partner}</h2><p className="panel-description">{labels.partnerIntro}</p><Message value={message} onClose={() => setMessage("")} /><form className="panel-form" onSubmit={submit}><label>{labels.desiredPublicName}<input className="text-field" name="displayName" required minLength={2} maxLength={80} /></label><label>{labels.desiredHandle}<input className="text-field" name="handle" required pattern="[a-zA-Z0-9-]+" maxLength={40} placeholder="mon-espace" /><small>{labels.handleFormat}</small></label><label>{labels.presentation}<textarea className="text-field text-area" name="bio" maxLength={1000} rows={4} /></label><button className="button button-lime" disabled={busy}>{busy ? labels.sending : labels.sendPartnerRequest} <ArrowRight size={15} /></button></form></section>;
+  return <section className="tool-section"><h2>{labels.partner}</h2><p className="panel-description">{labels.partnerIntro}</p><Message value={message} onClose={() => setMessage("")} /><form className="panel-form" onSubmit={submit}><label>{labels.desiredPublicName}<input className="text-field" name="displayName" required minLength={2} maxLength={80} /></label><label>{labels.desiredHandle}<input className="text-field" name="handle" required pattern="[a-zA-Z0-9-]+" maxLength={40} placeholder={labels.workspacePlaceholder} /><small>{labels.handleFormat}</small></label><label>{labels.presentation}<textarea className="text-field text-area" name="bio" maxLength={1000} rows={4} /></label><button className="button button-lime" disabled={busy}>{busy ? labels.sending : labels.sendPartnerRequest} <ArrowRight size={15} /></button></form></section>;
 }
 
 function Agreement({ tenantHandle }: { tenantHandle: string }) {
+  const labels = messagesFor(useLanguage());
   const router = useRouter();
   const [accepted, setAccepted] = useState(false);
   const [message, setMessage] = useState("");
   async function accept() {
     try {
       await sendJson("/api/partnerships/accept", "POST", { accepted: true });
-      setMessage("Conditions acceptées. Activation de votre espace…");
+      setMessage(labels.agreementAccepted);
       router.refresh();
     } catch (cause) {
-      setMessage(cause instanceof Error ? cause.message : "Action impossible.");
+      setMessage(cause instanceof Error ? cause.message : labels.saveGeneric);
     }
   }
-  return <div className="agreement-controls"><label className="checkbox-row"><input type="checkbox" checked={accepted} onChange={(event) => setAccepted(event.target.checked)} /> J’accepte et je m’engage à respecter les conditions du programme partenaire.</label><button type="button" className="button button-lime" disabled={!accepted} onClick={() => void accept()}>Accepter les conditions <Check size={15} /></button><Message value={message} onClose={() => setMessage("")} /><Link href={`/${tenantHandle}`}>Voir mon espace</Link></div>;
+  return <div className="agreement-controls"><label className="checkbox-row"><input type="checkbox" checked={accepted} onChange={(event) => setAccepted(event.target.checked)} /> {labels.acceptTerms}</label><button type="button" className="button button-lime" disabled={!accepted} onClick={() => void accept()}>{labels.acceptTermsButton} <Check size={15} /></button><Message value={message} onClose={() => setMessage("")} /><Link href={`/${tenantHandle}`}>{labels.viewSpace}</Link></div>;
 }
 
 function SubscriptionPanel({
@@ -460,10 +463,17 @@ function SubscriptionPanel({
   subscription: { status: string; paidMonths: number; trialEndsAt?: Date | string | null; currentPeriodEnd?: Date | string; plan: { monthlyPrice: number; currency: string; trialDays: number } } | null;
 }) {
   const router = useRouter();
+  const labels = messagesFor(useLanguage());
   const [months, setMonths] = useState(1);
   const [busyPlan, setBusyPlan] = useState<"monthly" | "annual" | null>(null);
   const [message, setMessage] = useState("");
+  const checkoutInProgress = useRef(false);
   async function checkout(plan: "monthly" | "annual", paidMonths?: number) {
+    if (checkoutInProgress.current) {
+      setMessage(labels.checkoutInProgress);
+      return;
+    }
+    checkoutInProgress.current = true;
     setBusyPlan(plan);
     setMessage("");
     try {
@@ -476,18 +486,19 @@ function SubscriptionPanel({
         message?: string;
       };
       if (result.testMode) {
-        setMessage("Paiement simulé en mode développement.");
+        setMessage(labels.simulatedPayment);
         await sendJson(`/api/payments/${result.payment.id}/mock-confirm`, "POST", { result: "SUCCEEDED" });
-        setMessage("Paiement de test confirmé. Votre abonnement a été prolongé.");
+        setMessage(labels.testPaymentConfirmed);
         router.refresh();
       } else if (result.checkoutUrl) {
         window.location.assign(result.checkoutUrl);
       } else {
-        setMessage(result.message ?? "SasPay n’a pas fourni de lien de paiement.");
+        setMessage(result.message ?? labels.checkoutUnavailable);
       }
     } catch (cause) {
       setMessage(cause instanceof Error ? cause.message : "Paiement indisponible.");
     } finally {
+      checkoutInProgress.current = false;
       setBusyPlan(null);
     }
   }
@@ -498,65 +509,68 @@ function SubscriptionPanel({
   const expired = Boolean(subscription && subscription.currentPeriodEnd && new Date(subscription.currentPeriodEnd) <= new Date());
   const currency = subscription?.plan.currency ?? "XOF";
   const trialDays = subscription?.plan.trialDays ?? 3;
-  const formatPrice = (amount: number) => `${new Intl.NumberFormat("fr-FR").format(amount)} ${currency}`;
+  const language = useLanguage();
+  const locale = language === "en" ? "en-GB" : language === "es" ? "es-ES" : "fr-FR";
+  const formatPrice = (amount: number) => `${new Intl.NumberFormat(locale).format(amount)} ${currency}`;
   const trialStatus = trialActive
-    ? `Essai actif jusqu’au ${new Intl.DateTimeFormat("fr-FR", { dateStyle: "long" }).format(new Date(subscription!.trialEndsAt!))}.`
+    ? labels.trialActiveUntil.replace("{date}", new Intl.DateTimeFormat(locale, { dateStyle: "long" }).format(new Date(subscription!.trialEndsAt!)))
     : expired
-      ? "Votre essai ou abonnement a expiré. Les publications sont bloquées jusqu’au renouvellement."
-      : `L’essai gratuit de ${trialDays} jours est accordé une seule fois lors de la première activation du compte.`;
+      ? labels.trialExpired
+      : labels.trialAvailable.replace("{days}", String(trialDays));
   return (
     <section className="tool-section subscription-section">
       <header className="subscription-intro">
-        <span className="section-kicker">ESPACE PARTENAIRE</span>
-        <h2>Choisissez votre formule</h2>
-        <p>Comparez les formules et sélectionnez l’accès adapté à votre activité. Les publications sont accessibles pendant la période d’essai ou un abonnement actif ; les publications payantes de vos joueurs sont réservées à la formule annuelle.</p>
+        <span className="section-kicker">{labels.subscriptionIntroKicker}</span>
+        <h2>{labels.subscriptionIntroTitle}</h2>
+        <p>{labels.subscriptionIntroDescription}</p>
       </header>
       <div className="subscription-status" role="status"><ShieldCheck size={16} /> {trialStatus}</div>
       <div className="subscription-plans">
         <article className="subscription-option">
-          <span className="section-kicker">DÉCOUVERTE</span>
-          <h3>Essai gratuit</h3>
-          <strong className="subscription-option-price">{trialDays} jours · 0 FCFA</strong>
-          <p>Activé automatiquement lors de la première activation du compte partenaire. Non renouvelable.</p>
-          <span className="subscription-plan-note">{trialActive ? "Votre période d’essai est en cours." : "Aucun paiement ni action de souscription nécessaire."}</span>
+          <span className="section-kicker">{labels.trialHeading}</span>
+          <h3>{labels.trialTitle}</h3>
+          <strong className="subscription-option-price">{trialDays} {labels.days} · {formatPrice(0)}</strong>
+          <p>{labels.trialDescription}</p>
+          <span className="subscription-plan-note">{trialActive ? labels.trialInProgress : labels.trialNoAction}</span>
         </article>
         <article className="subscription-option">
-          <span className="section-kicker">FLEXIBLE</span>
-          <h3>Abonnement mensuel</h3>
-          <p>Choisissez le nombre de mois à payer au tarif mensuel configuré par l’admin général.</p>
-          <label>Nombre de mois<select className="text-field" value={months} onChange={(event) => setMonths(Number(event.target.value))}>{Array.from({ length: 11 }, (_, index) => index + 1).map((month) => <option key={month} value={month}>{month} mois</option>)}</select></label>
+          <span className="section-kicker">{labels.monthlyHeading}</span>
+          <h3>{labels.monthlyTitle}</h3>
+          <p>{labels.monthlyDescription}</p>
+          <label>{labels.monthsLabel}<select className="text-field" value={months} onChange={(event) => setMonths(Number(event.target.value))}>{Array.from({ length: 11 }, (_, index) => index + 1).map((month) => <option key={month} value={month}>{month} {month === 1 ? labels.monthSingular : labels.monthPlural}</option>)}</select></label>
           <div className="subscription-math">
-            <span>{formatPrice(monthlyPrice)} × {months} mois</span>
+            <span>{formatPrice(monthlyPrice)} × {months} {labels.monthPlural}</span>
             <strong>{formatPrice(monthlyPrice * months)}</strong>
-            <small>Bonus : {bonusMonths ? "1 mois offert" : `${bonusDays} jours offerts`} · Accès : {months === 1 ? "30 jours + 7 jours offerts (37 jours)" : `${months + bonusMonths} mois`}</small>
+            <small>{labels.bonusLabel} : {bonusMonths ? labels.oneMonthFree : labels.daysFree.replace("{days}", String(bonusDays))} · {labels.accessLabel} : {months === 1 ? labels.thirtySevenDays : labels.monthsOfAccess.replace("{months}", String(months + bonusMonths))}</small>
           </div>
-          <button className="button button-lime" type="button" onClick={() => void checkout("monthly", months)} disabled={busyPlan !== null || monthlyPrice <= 0}>
-            {busyPlan === "monthly" ? <LoaderCircle className="spin" size={16} /> : <RefreshCw size={16} />} Choisir cette formule
+          <button className="button button-lime" type="button" onClick={() => void checkout("monthly", months)} disabled={busyPlan === "monthly" || monthlyPrice <= 0}>
+            {busyPlan === "monthly" ? <LoaderCircle className="spin" size={16} /> : <RefreshCw size={16} />} {labels.choosePlan}
           </button>
         </article>
         <article className="subscription-option subscription-option-featured">
-          <span className="section-kicker">FONCTIONNALITÉS AVANCÉES</span>
-          <h3>Abonnement annuel</h3>
-          <p>12 mois payés en une seule fois. Débloque les fonctions avancées et la publication de contenus payants.</p>
+          <span className="section-kicker">{labels.annualHeading}</span>
+          <h3>{labels.annualTitle}</h3>
+          <p>{labels.annualDescription}</p>
           <div className="subscription-math">
-            <span>{formatPrice(monthlyPrice)} × 12 mois</span>
+            <span>{formatPrice(monthlyPrice)} × 12 {labels.monthPlural}</span>
             <strong>{formatPrice(monthlyPrice * 12)}</strong>
-            <small>1 mois offert · 13 mois d’accès au total</small>
+            <small>{labels.annualMonthsSummary}</small>
           </div>
-          <button className="button button-lime" type="button" onClick={() => void checkout("annual")} disabled={busyPlan !== null || monthlyPrice <= 0}>
-            {busyPlan === "annual" ? <LoaderCircle className="spin" size={16} /> : <RefreshCw size={16} />} Choisir la formule annuelle
+          <button className="button button-lime" type="button" onClick={() => void checkout("annual")} disabled={busyPlan === "annual" || monthlyPrice <= 0}>
+            {busyPlan === "annual" ? <LoaderCircle className="spin" size={16} /> : <RefreshCw size={16} />} {labels.chooseAnnualPlan}
           </button>
         </article>
       </div>
-      {monthlyPrice <= 0 && <p className="form-error">Le tarif partenaire n’est pas configuré. Contactez l’admin général.</p>}
-      <p className="form-legal">Le paiement est sécurisé. L’abonnement est activé uniquement après confirmation du paiement.</p>
+      {monthlyPrice <= 0 && <p className="form-error">{labels.priceMissing}</p>}
+      <p className="form-legal">{labels.securePayment}</p>
       <Message value={message} onClose={() => setMessage("")} />
     </section>
   );
 }
 
 function BookmakerManager({ canManage }: { canManage: boolean }) {
-  const labels = messagesFor(useLanguage());
+  const language = useLanguage();
+  const labels = messagesFor(language);
   type Bookmaker = {
     id: string;
     name: string;
@@ -574,8 +588,8 @@ function BookmakerManager({ canManage }: { canManage: boolean }) {
     try {
       const result = await sendJson("/api/bookmakers", "GET") as { bookmakers: typeof bookmakers };
       setBookmakers(result.bookmakers);
-    } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Chargement impossible."); }
-  }, []);
+    } catch (cause) { setMessage(cause instanceof Error ? cause.message : messagesFor(language).loadingGeneric); }
+  }, [language]);
   useEffect(() => {
     const timer = window.setTimeout(() => { void refresh(); }, 0);
     return () => window.clearTimeout(timer);
@@ -588,19 +602,19 @@ function BookmakerManager({ canManage }: { canManage: boolean }) {
       await sendJson("/api/bookmakers", "POST", Object.fromEntries(form.entries()));
       formElement.reset();
       setEditing(null);
-      setMessage(editing ? "Bookmaker modifié." : "Bookmaker ajouté.");
+      setMessage(editing ? labels.bookmakerUpdated : labels.bookmakerAdded);
       await refresh();
-    } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Enregistrement impossible."); }
+    } catch (cause) { setMessage(cause instanceof Error ? cause.message : labels.saveGeneric); }
   }
   async function remove(id: string) {
     try {
       await sendJson(`/api/bookmakers?id=${id}`, "DELETE");
       await refresh();
-    } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Suppression impossible."); }
+    } catch (cause) { setMessage(cause instanceof Error ? cause.message : labels.deleteGeneric); }
   }
   return (
     <section className="tool-section">
-      {canManage && <p className="panel-description">Ajoutez et gérez les liens officiels visibles par les joueurs de votre espace.</p>}
+      {canManage && <p className="panel-description">{labels.bookmakerLinks}</p>}
       <Message value={message} onClose={() => setMessage("")} />
       {canManage && (
         <form className="panel-form bookmaker-form" key={editing?.id ?? "new-bookmaker"} onSubmit={submit}>
@@ -609,12 +623,12 @@ function BookmakerManager({ canManage }: { canManage: boolean }) {
           <label>{labels.bookmakerPromo}<input className="text-field" name="promoCode" maxLength={80} defaultValue={editing?.promoCode ?? ""} /></label>
           <label>{labels.bookmakerSignup}<input className="text-field" name="signupUrl" type="url" required placeholder="https://…" defaultValue={editing?.signupUrl ?? ""} /></label>
           <label>{labels.bookmakerVideo}<input className="text-field" name="videoUrl" type="url" required placeholder="https://…" defaultValue={editing?.videoUrl ?? ""} /></label>
-          <label>Logo (URL HTTPS)<input className="text-field" name="logoUrl" type="url" placeholder="https://…" defaultValue={editing?.logoUrl ?? ""} /></label>
-          <label>Couleur de marque<input className="text-field" name="brandColor" type="color" defaultValue={editing?.brandColor ?? "#5b9cff"} /></label>
-          <label className="checkbox-label"><input type="hidden" name="active" value="false" /><input type="checkbox" name="active" value="true" defaultChecked={editing?.active ?? true} /> Visible pour les joueurs</label>
+          <label>{labels.logoHttps}<input className="text-field" name="logoUrl" type="url" placeholder="https://…" defaultValue={editing?.logoUrl ?? ""} /></label>
+          <label>{labels.brandColor}<input className="text-field" name="brandColor" type="color" defaultValue={editing?.brandColor ?? "#5b9cff"} /></label>
+          <label className="checkbox-label"><input type="hidden" name="active" value="false" /><input type="checkbox" name="active" value="true" defaultChecked={editing?.active ?? true} /> {labels.visibleToPlayers}</label>
           <div className="admin-actions">
-            <button className="button button-primary" type="submit"><Plus size={15} /> {editing ? "Enregistrer les modifications" : labels.bookmakerAdd}</button>
-            {editing && <button className="button button-dark" type="button" onClick={() => setEditing(null)}>Annuler</button>}
+            <button className="button button-primary" type="submit"><Plus size={15} /> {editing ? labels.saveChanges : labels.bookmakerAdd}</button>
+            {editing && <button className="button button-dark" type="button" onClick={() => setEditing(null)}>{labels.cancel}</button>}
           </div>
         </form>
       )}
@@ -625,8 +639,8 @@ function BookmakerManager({ canManage }: { canManage: boolean }) {
                 {item.logoUrl && <Image src={item.logoUrl} alt="" width={48} height={48} unoptimized />}
                 <div>
                   <strong>{item.name}</strong>
-                  {item.promoCode && <span className="bookmaker-promo"><span>Code promo</span><b>{item.promoCode}</b></span>}
-                  {canManage && !item.active && <span>Masqué</span>}
+                  {item.promoCode && <span className="bookmaker-promo"><span>{labels.promoCode}</span><b>{item.promoCode}</b></span>}
+                  {canManage && !item.active && <span>{labels.hidden}</span>}
                 </div>
               </div>
               <div className="bookmaker-card-links">
@@ -635,10 +649,10 @@ function BookmakerManager({ canManage }: { canManage: boolean }) {
                   : <span className="button button-light bookmaker-card-button" aria-disabled="true">{labels.bookmakerVideoMissing}</span>}
                 <a className="button button-light bookmaker-card-button" href={item.signupUrl} target="_blank" rel="noopener noreferrer">{labels.bookmakerJoin} <ExternalLink size={14} /></a>
               </div>
-              {canManage && <div className="bookmaker-card-management"><button className="button button-light button-small" type="button" onClick={() => setEditing(item)}>Modifier</button><button className="button button-light button-small" type="button" onClick={() => void remove(item.id)} aria-label={`Supprimer ${item.name}`}><Trash2 size={15} /> Supprimer</button></div>}
+              {canManage && <div className="bookmaker-card-management"><button className="button button-light button-small" type="button" onClick={() => setEditing(item)}>{labels.bookmakerEdit}</button><button className="button button-light button-small" type="button" onClick={() => void remove(item.id)} aria-label={`${labels.bookmakerDelete} ${item.name}`}><Trash2 size={15} /> {labels.bookmakerDelete}</button></div>}
             </article>
           ))}</div>
-        : <div className="empty-feed"><h3>{canManage ? "Aucun bookmaker ajouté" : "Aucun bookmaker disponible"}</h3><p>{canManage ? labels.bookmakerEmptyAdmin : "Les liens ajoutés par votre partenaire apparaîtront ici."}</p></div>}
+        : <div className="empty-feed"><h3>{canManage ? labels.bookmakerNoAdded : labels.bookmakerNoAvailable}</h3><p>{canManage ? labels.bookmakerEmptyAdmin : labels.bookmakerPlayerEmpty}</p></div>}
     </section>
   );
 }
@@ -785,7 +799,14 @@ function ResultsFeed({ tenantHandle }: { tenantHandle: string }) {
 }
 
 function AdminTools({ tab }: { tab: string }) {
-  const labels = messagesFor(useLanguage());
+  const language = useLanguage();
+  const labels = messagesFor(language);
+  const statusLabel = (status: string) => ({
+    ACTIVE: labels.statusActive,
+    PENDING: labels.statusPending,
+    SUSPENDED: labels.statusSuspended,
+    ARCHIVED: labels.statusArchived,
+  }[status] ?? status);
   const [tenants, setTenants] = useState<Array<{ id: string; handle: string; displayName: string; status: string; suspensionReason: string | null; owner: { name: string; email: string | null }; _count: { members: number; posts: number; reports: number }; subscription: { status: string; paidMonths: number } | null }>>([]);
   const [applications, setApplications] = useState<Array<{ id: string; requestedHandle: string; requestedDisplayName: string; status: string; user: { name: string; email: string | null } }>>([]);
   const [reports, setReports] = useState<Array<{ id: string; reason: string; description: string; status: string; tenant: { handle: string; displayName: string }; author: { name: string } }>>([]);
@@ -810,8 +831,8 @@ function AdminTools({ tab }: { tab: string }) {
         const result = await sendJson("/api/admin/identifier-requests", "GET") as { requests: typeof identifierRequests };
         setIdentifierRequests(result.requests);
       }
-    } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Chargement impossible."); }
-  }, [tab, query]);
+    } catch (cause) { setMessage(cause instanceof Error ? cause.message : messagesFor(language).loadingGeneric); }
+  }, [tab, query, language]);
   useEffect(() => {
     const timer = window.setTimeout(() => { void refresh(); }, 0);
     return () => window.clearTimeout(timer);
@@ -821,29 +842,30 @@ function AdminTools({ tab }: { tab: string }) {
     try {
       await sendJson("/api/admin/tenants", "PATCH", { tenantId, status, reason });
       await refresh();
-    } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Modification impossible."); }
+    } catch (cause) { setMessage(cause instanceof Error ? cause.message : labels.saveGeneric); }
   }
   async function decideApplication(id: string, decision: string) {
     try {
       await sendJson(`/api/partnerships/${id}`, "PATCH", { decision });
       await refresh();
-    } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Action impossible."); }
+    } catch (cause) { setMessage(cause instanceof Error ? cause.message : labels.actionFailed); }
   }
   async function reviewReport(id: string, status: string) {
     try {
-      await sendJson(`/api/reports/${id}`, "PATCH", { status, resolution: "Examen effectué par l’administration." });
+      await sendJson(`/api/reports/${id}`, "PATCH", { status, resolution: labels.reportReviewNote });
       await refresh();
-    } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Action impossible."); }
+    } catch (cause) { setMessage(cause instanceof Error ? cause.message : labels.actionFailed); }
   }
-  if (tab === "admins") return <section className="tool-section"><h2>{labels.admins}</h2><CreateAdmin /><label className="search-admin"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher un partenaire" /></label><Message value={message} onClose={() => setMessage("")} /><div className="admin-list">{tenants.map((tenant) => <article className="admin-card" key={tenant.id}><div className="admin-card-head"><strong>{tenant.displayName}</strong><span className={`status-pill status-${tenant.status.toLowerCase()}`}>{tenant.status}</span></div><span>@{tenant.handle} · {tenant.owner.name} · {tenant.owner.email}</span><span>{tenant._count.members} joueurs · {tenant._count.posts} publications · {tenant._count.reports} signalements · Abonnement {tenant.subscription?.status ?? "—"}</span>{tenant.suspensionReason && <p>{tenant.suspensionReason}</p>}<div className="admin-actions">{tenant.status === "ACTIVE" ? <button className="button button-danger" onClick={() => { const reason = window.prompt("Motif de suspension"); if (reason) void updateTenant(tenant.id, "SUSPENDED", reason); }}>Suspendre</button> : <button className="button button-dark" onClick={() => void updateTenant(tenant.id, "ACTIVE")}>Réactiver</button>}<Link href={`/${tenant.handle}`} target="_blank">Profil public <ExternalLink size={14} /></Link></div></article>)}</div></section>;
-  if (tab === "applications") return <section className="tool-section"><h2>Demandes partenaires</h2><Message value={message} onClose={() => setMessage("")} /><div className="admin-list">{applications.map((application) => <article className="admin-card" key={application.id}><strong>{application.requestedDisplayName} · @{application.requestedHandle}</strong><span>{application.user.name} · {application.user.email} · {application.status}</span>{application.status === "PENDING" && <div className="admin-actions"><button className="button button-lime" onClick={() => void decideApplication(application.id, "APPROVED")}>Approuver</button><button className="button button-danger" onClick={() => void decideApplication(application.id, "REJECTED")}>Refuser</button></div>}</article>)}</div></section>;
-  if (tab === "reports") return <section className="tool-section"><h2>Signalements</h2><Message value={message} onClose={() => setMessage("")} /><div className="admin-list">{reports.map((report) => <article className="admin-card" key={report.id}><strong>@{report.tenant.handle} · {report.reason}</strong><span>Signalé par {report.author.name} · {report.status}</span><p>{report.description}</p>{["OPEN", "UNDER_REVIEW"].includes(report.status) && <div className="admin-actions"><button className="button button-dark" onClick={() => void reviewReport(report.id, "UNDER_REVIEW")}>En cours d’examen</button><button className="button button-lime" onClick={() => void reviewReport(report.id, "RESOLVED")}>Résoudre</button><button className="button button-danger" onClick={() => void reviewReport(report.id, "DISMISSED")}>Classer sans suite</button></div>}</article>)}</div></section>;
-  if (tab === "identifier-requests") return <section className="tool-section"><h2>Demandes de modification d’identifiant</h2><Message value={message} onClose={() => setMessage("")} /><div className="admin-list">{identifierRequests.map((item) => <article className="admin-card" key={item.id}><strong>{item.tenant.displayName} · @{item.oldHandle} → @{item.requestedHandle}</strong><span>{item.reason} · {item.status}</span>{item.status === "OPEN" && <div className="admin-actions"><button className="button button-lime" onClick={async () => { try { await sendJson(`/api/admin/identifier-requests/${item.id}`, "PATCH", { decision: "RESOLVED" }); await refresh(); } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Action impossible."); } }}>Approuver</button><button className="button button-danger" onClick={async () => { try { await sendJson(`/api/admin/identifier-requests/${item.id}`, "PATCH", { decision: "DISMISSED" }); await refresh(); } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Action impossible."); } }}>Refuser</button></div>}</article>)}</div></section>;
+  if (tab === "admins") return <section className="tool-section"><h2>{labels.admins}</h2><CreateAdmin /><label className="search-admin"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={labels.searchPartner} /></label><Message value={message} onClose={() => setMessage("")} /><div className="admin-list">{tenants.map((tenant) => <article className="admin-card" key={tenant.id}><div className="admin-card-head"><strong>{tenant.displayName}</strong><span className={`status-pill status-${tenant.status.toLowerCase()}`}>{statusLabel(tenant.status)}</span></div><span>@{tenant.handle} · {tenant.owner.name} · {tenant.owner.email}</span><span>{labels.partnerCounts.replace("{members}", String(tenant._count.members)).replace("{posts}", String(tenant._count.posts)).replace("{reports}", String(tenant._count.reports)).replace("{status}", statusLabel(tenant.subscription?.status ?? "—"))}</span>{tenant.suspensionReason && <p>{tenant.suspensionReason}</p>}<div className="admin-actions">{tenant.status === "ACTIVE" ? <button className="button button-danger" onClick={() => { const reason = window.prompt(labels.suspendReason); if (reason) void updateTenant(tenant.id, "SUSPENDED", reason); }}>{labels.suspend}</button> : <button className="button button-dark" onClick={() => void updateTenant(tenant.id, "ACTIVE")}>{labels.reactivate}</button>}<Link href={`/${tenant.handle}`} target="_blank">{labels.publicProfile} <ExternalLink size={14} /></Link></div></article>)}</div></section>;
+  if (tab === "applications") return <section className="tool-section"><h2>{labels.partnerRequests}</h2><Message value={message} onClose={() => setMessage("")} /><div className="admin-list">{applications.map((application) => <article className="admin-card" key={application.id}><strong>{application.requestedDisplayName} · @{application.requestedHandle}</strong><span>{application.user.name} · {application.user.email} · {statusLabel(application.status)}</span>{application.status === "PENDING" && <div className="admin-actions"><button className="button button-lime" onClick={() => void decideApplication(application.id, "APPROVED")}>{labels.approve}</button><button className="button button-danger" onClick={() => void decideApplication(application.id, "REJECTED")}>{labels.reject}</button></div>}</article>)}</div></section>;
+  if (tab === "reports") return <section className="tool-section"><h2>{labels.reports}</h2><Message value={message} onClose={() => setMessage("")} /><div className="admin-list">{reports.map((report) => <article className="admin-card" key={report.id}><strong>@{report.tenant.handle} · {report.reason}</strong><span>{labels.reportedBy} {report.author.name} · {statusLabel(report.status)}</span><p>{report.description}</p>{["OPEN", "UNDER_REVIEW"].includes(report.status) && <div className="admin-actions"><button className="button button-dark" onClick={() => void reviewReport(report.id, "UNDER_REVIEW")}>{labels.underReview}</button><button className="button button-lime" onClick={() => void reviewReport(report.id, "RESOLVED")}>{labels.resolveReport}</button><button className="button button-danger" onClick={() => void reviewReport(report.id, "DISMISSED")}>{labels.dismissReport}</button></div>}</article>)}</div></section>;
+  if (tab === "identifier-requests") return <section className="tool-section"><h2>{labels.identifierRequestsTitle}</h2><Message value={message} onClose={() => setMessage("")} /><div className="admin-list">{identifierRequests.map((item) => <article className="admin-card" key={item.id}><strong>{item.tenant.displayName} · @{item.oldHandle} → @{item.requestedHandle}</strong><span>{item.reason} · {statusLabel(item.status)}</span>{item.status === "OPEN" && <div className="admin-actions"><button className="button button-lime" onClick={async () => { try { await sendJson(`/api/admin/identifier-requests/${item.id}`, "PATCH", { decision: "RESOLVED" }); await refresh(); } catch (cause) { setMessage(cause instanceof Error ? cause.message : labels.saveGeneric); } }}>{labels.approveRequest}</button><button className="button button-danger" onClick={async () => { try { await sendJson(`/api/admin/identifier-requests/${item.id}`, "PATCH", { decision: "DISMISSED" }); await refresh(); } catch (cause) { setMessage(cause instanceof Error ? cause.message : labels.saveGeneric); } }}>{labels.rejectRequest}</button></div>}</article>)}</div></section>;
   if (tab === "settings") return <GlobalSettings />;
   return null;
 }
 
 function CreateAdmin() {
+  const labels = messagesFor(useLanguage());
   const [activationUrl, setActivationUrl] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -856,15 +878,16 @@ function CreateAdmin() {
     try {
       const result = await sendJson("/api/admin/tenants", "POST", Object.fromEntries(form.entries())) as { activationUrl: string };
       setActivationUrl(result.activationUrl);
-      setMessage("Partenaire créé. Copiez le lien d’activation et transmettez-le par un canal sûr.");
+      setMessage(labels.partnerCreatedNotice);
       formElement.reset();
-    } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Création impossible."); }
+    } catch (cause) { setMessage(cause instanceof Error ? cause.message : labels.saveGeneric); }
     finally { setBusy(false); }
   }
-  return <details className="create-admin"><summary><Plus size={15} /> Ajouter un partenaire manuellement</summary><Message value={message} onClose={() => setMessage("")} /><form className="panel-form" onSubmit={submit}><div className="form-row"><label>Nom complet<input className="text-field" name="name" required minLength={2} /></label><label>Email<input className="text-field" name="email" type="email" required /></label></div><div className="form-row"><label>Téléphone<input className="text-field" name="phone" placeholder="+229…" /></label><label>Identifiant public<input className="text-field" name="handle" required pattern="[a-zA-Z0-9-]+" /></label></div><label>Nom public<input className="text-field" name="displayName" required minLength={2} /></label><label>Biographie<textarea className="text-field text-area" name="bio" rows={3} /></label><button className="button button-lime" disabled={busy}>{busy ? "Création…" : "Créer le partenaire"}</button></form>{activationUrl && <div className="activation-link"><span>{activationUrl}</span><button className="button button-dark button-small" onClick={() => void navigator.clipboard.writeText(activationUrl)}><Copy size={14} /> Copier le lien</button></div>}</details>;
+  return <details className="create-admin"><summary><Plus size={15} /> {labels.createPartnerManual}</summary><Message value={message} onClose={() => setMessage("")} /><form className="panel-form" onSubmit={submit}><div className="form-row"><label>{labels.fullName}<input className="text-field" name="name" required minLength={2} /></label><label>{labels.email}<input className="text-field" name="email" type="email" required /></label></div><div className="form-row"><label>{labels.phone}<input className="text-field" name="phone" placeholder="+229…" /></label><label>{labels.publicIdentifier}<input className="text-field" name="handle" required pattern="[a-zA-Z0-9-]+" /></label></div><label>{labels.publicName}<input className="text-field" name="displayName" required minLength={2} /></label><label>{labels.publicBiography}<textarea className="text-field text-area" name="bio" rows={3} /></label><button className="button button-lime" disabled={busy}>{busy ? labels.createPartnerLoading : labels.createPartner}</button></form>{activationUrl && <div className="activation-link"><span>{activationUrl}</span><button className="button button-dark button-small" onClick={() => void navigator.clipboard.writeText(activationUrl)}><Copy size={14} /> {labels.copyActivationLink}</button></div>}</details>;
 }
 
 function GlobalSettings() {
+  const labels = messagesFor(useLanguage());
   const [initial, setInitial] = useState<{ monthlyPrice: number; currency: string; trialDays: number; support: Record<string, string>; contract: string } | null>(null);
   const [message, setMessage] = useState("");
   useEffect(() => {
@@ -879,12 +902,12 @@ function GlobalSettings() {
           currency: plan?.currency ?? "XOF",
           trialDays: plan?.trialDays ?? 3,
           support,
-          contract: contract.content ?? "En utilisant cet espace, le partenaire s’engage à respecter les règles de la plateforme, publier des contenus légaux et ne jamais garantir des gains.",
+          contract: contract.content ?? labels.defaultPartnerContract,
         });
-      }).catch((cause) => setMessage(cause instanceof Error ? cause.message : "Chargement impossible."));
+      }).catch((cause) => setMessage(cause instanceof Error ? cause.message : labels.loadingGeneric));
     }, 0);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [labels.loadingGeneric, labels.defaultPartnerContract]);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formElement = event.currentTarget;
@@ -900,11 +923,11 @@ function GlobalSettings() {
         supportTelegram: form.get("supportTelegram"),
         partnerContract: form.get("partnerContract"),
       });
-      setMessage("Paramètres globaux enregistrés.");
-    } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Enregistrement impossible."); }
+      setMessage(labels.globalSettingsSaved);
+    } catch (cause) { setMessage(cause instanceof Error ? cause.message : labels.saveGeneric); }
   }
-  if (!initial) return <p className="panel-description">Chargement des paramètres globaux…</p>;
-  return <section className="tool-section"><h2>Paramètres de la plateforme</h2><p className="panel-description">Les secrets SasPay ne sont pas gérés ici : ils restent exclusivement dans l’environnement serveur.</p><Message value={message} onClose={() => setMessage("")} /><form className="panel-form" onSubmit={submit}><h3>Abonnements partenaires</h3><div className="form-row"><label>Tarif mensuel<input className="text-field" name="monthlyPrice" type="number" min="0" defaultValue={initial.monthlyPrice} required /></label><label>Devise<input className="text-field" name="currency" defaultValue={initial.currency} pattern="[A-Z]{3}" required /></label></div><label>Jours d’essai<input className="text-field" name="trialDays" type="number" min="0" max="30" defaultValue={initial.trialDays} required /></label><h3>Assistance</h3><label>Email<input className="text-field" name="supportEmail" type="email" defaultValue={initial.support.supportEmail ?? ""} /></label><label>Téléphone<input className="text-field" name="supportPhone" defaultValue={initial.support.supportPhone ?? ""} /></label><label>WhatsApp<input className="text-field" name="supportWhatsApp" defaultValue={initial.support.supportWhatsApp ?? ""} /></label><label>Telegram<input className="text-field" name="supportTelegram" defaultValue={initial.support.supportTelegram ?? ""} /></label><h3>Contrat partenaire</h3><label>Texte du contrat<textarea className="text-field text-area" name="partnerContract" rows={8} defaultValue={initial.contract} required minLength={20} /></label><button className="button button-lime">Enregistrer les paramètres</button></form></section>;
+  if (!initial) return <p className="panel-description">{labels.globalLoading}</p>;
+  return <section className="tool-section"><h2>{labels.adminSettingsTitle}</h2><p className="panel-description">{labels.adminSettingsSecrets}</p><Message value={message} onClose={() => setMessage("")} /><form className="panel-form" onSubmit={submit}><h3>{labels.partnerSubscriptions}</h3><div className="form-row"><label>{labels.monthlyRate}<input className="text-field" name="monthlyPrice" type="number" min="0" defaultValue={initial.monthlyPrice} required /></label><label>{labels.currencyLabel}<input className="text-field" name="currency" defaultValue={initial.currency} pattern="[A-Z]{3}" required /></label></div><label>{labels.trialDaysLabel}<input className="text-field" name="trialDays" type="number" min="0" max="30" defaultValue={initial.trialDays} required /></label><h3>{labels.assistance}</h3><label>{labels.email}<input className="text-field" name="supportEmail" type="email" defaultValue={initial.support.supportEmail ?? ""} /></label><label>{labels.phone}<input className="text-field" name="supportPhone" defaultValue={initial.support.supportPhone ?? ""} /></label><label>WhatsApp<input className="text-field" name="supportWhatsApp" defaultValue={initial.support.supportWhatsApp ?? ""} /></label><label>Telegram<input className="text-field" name="supportTelegram" defaultValue={initial.support.supportTelegram ?? ""} /></label><h3>{labels.partnerContract}</h3><label>{labels.contractText}<textarea className="text-field text-area" name="partnerContract" rows={8} defaultValue={initial.contract} required minLength={20} /></label><button className="button button-lime">{labels.saveSettings}</button></form></section>;
 }
 
 function SettingsPanel() {
@@ -960,7 +983,7 @@ function SettingsPanel() {
       delete profile.avatarFile;
       let avatarUrl = String(profile.avatarUrl ?? "");
       if (avatarFile instanceof File && avatarFile.size > 0) {
-        const uploaded = await uploadMediaFile(avatarFile, "avatar", "Impossible d’enregistrer la photo.");
+        const uploaded = await uploadMediaFile(avatarFile, "avatar", labels.mediaUploadError);
         avatarUrl = uploaded.url;
       }
       profile.avatarUrl = avatarUrl;
@@ -1002,8 +1025,8 @@ function SettingsPanel() {
     try {
       await sendJson("/api/settings", "PUT", { currentPassword, newPassword });
       setCurrentPassword(""); setNewPassword("");
-      setMessage("Mot de passe modifié.");
-    } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Modification impossible."); }
+      setMessage(labels.passwordChanged);
+    } catch (cause) { setMessage(cause instanceof Error ? cause.message : labels.passwordChangeFailed); }
   }
   async function requestHandle(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1013,9 +1036,9 @@ function SettingsPanel() {
       await sendJson("/api/settings", "PATCH", { intent: "change-handle", requestedHandle: form.get("requestedHandle"), reason: form.get("reason") });
       setHandleMessage(labels.handleRequestSent);
       formElement.reset();
-    } catch (cause) { setHandleMessage(cause instanceof Error ? cause.message : "Envoi impossible."); }
+    } catch (cause) { setHandleMessage(cause instanceof Error ? cause.message : labels.sendFailed); }
   }
-  if (!user) return <div className="loading-inline"><LoaderCircle className="spin" size={17} /> Chargement des paramètres…</div>;
+  if (!user) return <div className="loading-inline"><LoaderCircle className="spin" size={17} /> {labels.loadingSettings}</div>;
   return (
     <section className="tool-section">
       <h2>{labels.profile}</h2>
@@ -1052,7 +1075,7 @@ function SettingsPanel() {
       {user.ownedTenants[0] && (
         <form className="panel-form password-form" onSubmit={requestHandle}>
           <h3>{labels.changeHandle}</h3>
-          <p className="panel-description">Votre identifiant @{user.ownedTenants[0].handle} est stable. Une modification nécessite une demande à l’administration.</p>
+          <p className="panel-description">{labels.handleChangeDescription.replace("{handle}", user.ownedTenants[0].handle)}</p>
           <label>{labels.currentHandle}<input className="text-field" value={`@${user.ownedTenants[0].handle}`} readOnly /></label>
           <label>{labels.newHandle}<input className="text-field" name="requestedHandle" required pattern="[a-zA-Z0-9-]+" /></label>
           <label>{labels.reason}<textarea className="text-field text-area" name="reason" minLength={10} required rows={3} /></label>
@@ -1065,18 +1088,22 @@ function SettingsPanel() {
 }
 
 function NotificationPanel() {
+  const language = useLanguage();
+  const labels = messagesFor(language);
   const [items, setItems] = useState<Array<{ id: string; title: string; body: string; href: string | null; readAt: string | null; createdAt: string }>>([]);
   const [message, setMessage] = useState("");
-  const refresh = useCallback(() => { void sendJson("/api/notifications", "GET").then((result) => setItems(result.notifications as typeof items)).catch((cause) => setMessage(cause instanceof Error ? cause.message : "Chargement impossible.")); }, []);
+  const locale = language === "en" ? "en-GB" : language === "es" ? "es-ES" : "fr-FR";
+  const refresh = useCallback(() => { void sendJson("/api/notifications", "GET").then((result) => setItems(result.notifications as typeof items)).catch((cause) => setMessage(cause instanceof Error ? cause.message : labels.loadingGeneric)); }, [labels.loadingGeneric]);
   useEffect(() => { refresh(); }, [refresh]);
   async function markRead(id: string) {
     try { await sendJson("/api/notifications", "PATCH", { id }); refresh(); }
-    catch (cause) { setMessage(cause instanceof Error ? cause.message : "Action impossible."); }
+    catch (cause) { setMessage(cause instanceof Error ? cause.message : labels.saveGeneric); }
   }
-  return <section className="tool-section"><h2>Notifications</h2><Message value={message} onClose={() => setMessage("")} /><div className="admin-list">{items.map((item) => <article className={`notification-card ${item.readAt ? "" : "unread"}`} key={item.id}><Bell size={16} /><div><strong>{item.title}</strong><p>{item.body}</p><small>{new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(item.createdAt))}</small>{item.href && <Link href={item.href}>Ouvrir <ArrowRight size={13} /></Link>}</div>{!item.readAt && <button className="button button-dark button-small" onClick={() => void markRead(item.id)}>Lu</button>}</article>)}</div>{items.length === 0 && <p className="panel-description">Vous êtes à jour, aucune notification.</p>}</section>;
+  return <section className="tool-section"><h2>{labels.notificationsTitle}</h2><Message value={message} onClose={() => setMessage("")} /><div className="admin-list">{items.map((item) => <article className={`notification-card ${item.readAt ? "" : "unread"}`} key={item.id}><Bell size={16} /><div><strong>{item.title}</strong><p>{item.body}</p><small>{new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(new Date(item.createdAt))}</small>{item.href && <Link href={item.href}>{labels.open} <ArrowRight size={13} /></Link>}</div>{!item.readAt && <button className="button button-dark button-small" onClick={() => void markRead(item.id)}>{labels.markAsRead}</button>}</article>)}</div>{items.length === 0 && <p className="panel-description">{labels.noNotifications}</p>}</section>;
 }
 
 function ReportForm({ tenantHandle }: { tenantHandle: string }) {
+  const labels = messagesFor(useLanguage());
   const [message, setMessage] = useState("");
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1084,11 +1111,11 @@ function ReportForm({ tenantHandle }: { tenantHandle: string }) {
     const form = new FormData(formElement);
     try {
       await sendJson("/api/reports", "POST", { tenantHandle, reason: form.get("reason"), description: form.get("description") });
-      setMessage("Votre signalement a été transmis à l’administration.");
+      setMessage(labels.reportSent);
       formElement.reset();
-    } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Envoi impossible."); }
+    } catch (cause) { setMessage(cause instanceof Error ? cause.message : labels.sendFailed); }
   }
-  return <form className="panel-form report-form" onSubmit={submit}><h3>Signaler cet espace</h3><p className="panel-description">Un signalement est transmis à l’équipe d’administration pour examen.</p><label>Motif<input className="text-field" name="reason" required minLength={3} maxLength={120} /></label><label>Description<textarea className="text-field text-area" name="description" minLength={10} maxLength={5000} rows={4} required /></label><Message value={message} onClose={() => setMessage("")} /><button className="button button-dark"><Flag size={15} /> Envoyer un signalement</button></form>;
+  return <form className="panel-form report-form" onSubmit={submit}><h3>{labels.reportTitle}</h3><p className="panel-description">{labels.reportDescription}</p><label>{labels.reportReason}<input className="text-field" name="reason" required minLength={3} maxLength={120} /></label><label>{labels.reportDetails}<textarea className="text-field text-area" name="description" minLength={10} maxLength={5000} rows={4} required /></label><Message value={message} onClose={() => setMessage("")} /><button className="button button-dark"><Flag size={15} /> {labels.reportSubmit}</button></form>;
 }
 
 export default function DashboardTools({
@@ -1114,6 +1141,7 @@ export default function DashboardTools({
     plan: { monthlyPrice: number; currency: string; trialDays: number };
   } | null;
 }) {
+  const labels = messagesFor(useLanguage());
   const [postRefreshToken, setPostRefreshToken] = useState(0);
   const publicationTabs = ["posts", "DAILY", "PREMIUM", "MONTANTE", "VIP", "FIXED", "GROSSE_COTE"];
   const refreshPosts = () => setPostRefreshToken((current) => current + 1);
@@ -1126,9 +1154,9 @@ export default function DashboardTools({
       return (
         <>
           <section className="dashboard-alert" role="status">
-            <strong>La période d’essai ou l’abonnement est expiré.</strong>
-            <span>Les publications sont bloquées jusqu’à la souscription ou au renouvellement.</span>
-            <Link href="/dashboard?tab=subscription">Voir les formules et renouveler</Link>
+            <strong>{labels.reportExpiredNotice}</strong>
+            <span>{labels.postsBlockedNotice}</span>
+            <Link href="/dashboard?tab=subscription">{labels.plansRenewLink}</Link>
           </section>
           <Feed tenantHandle={tenantHandle} category={category} />
         </>
@@ -1141,9 +1169,9 @@ export default function DashboardTools({
     if (role === "ADMIN" && !canPublish) {
       return (
         <section className="dashboard-alert" role="status">
-          <strong>La période d’essai ou l’abonnement est expiré.</strong>
-          <span>La publication des résultats est bloquée jusqu’au renouvellement.</span>
-          <Link href="/dashboard?tab=subscription">Voir les formules et renouveler</Link>
+          <strong>{labels.reportExpiredNotice}</strong>
+          <span>{labels.resultsBlockedNotice}</span>
+          <Link href="/dashboard?tab=subscription">{labels.plansRenewLink}</Link>
         </section>
       );
     }
@@ -1155,10 +1183,10 @@ export default function DashboardTools({
   if (tab === "settings") return <SettingsPanel />;
   if (tab === "notifications") return <NotificationPanel />;
   if (role === "ADMIN" && tab === "subscription") return <SubscriptionPanel subscription={subscription} />;
-  if (role === "ADMIN" && tab === "support") return <section className="tool-section"><h2>Assistance</h2><p className="panel-description">Pour obtenir de l’aide, contactez l’équipe d’administration via les canaux communiqués par votre plateforme.</p></section>;
+  if (role === "ADMIN" && tab === "support") return <section className="tool-section"><h2>{labels.assistance}</h2><p className="panel-description">{labels.supportHelp}</p></section>;
   if (role === "PLAYER" && tab === "bookmakers") return <BookmakerManager canManage={false} />;
   if (role === "PLAYER" && tab === "partner") return <PartnerApplication />;
   if (role === "PLAYER" && tenantHandle && tab === "results") return <ResultsFeed tenantHandle={tenantHandle} />;
   if (role === "PLAYER" && tenantHandle) return <><Feed tenantHandle={tenantHandle} category={["DAILY", "PREMIUM", "MONTANTE", "VIP", "FIXED", "GROSSE_COTE"].includes(tab) ? tab : undefined} />{tab === "feed" && <ReportForm tenantHandle={tenantHandle} />}</>;
-  return <div className="empty-feed"><span className="empty-icon"><ShieldCheck size={20} /></span><h3>Aucune donnée à afficher pour le moment</h3><p>Cette section apparaîtra ici dès que votre espace disposera de données.</p></div>;
+  return <div className="empty-feed"><span className="empty-icon"><ShieldCheck size={20} /></span><h3>{labels.emptyDashboardTitle}</h3><p>{labels.emptyDashboardDescription}</p></div>;
 }

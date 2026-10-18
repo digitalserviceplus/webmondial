@@ -23,6 +23,7 @@ export async function GET(
         OR: [
           { visibility: "PUBLIC" },
           { visibility: "TENANT_PLAYERS", tenant: { members: { some: { userId: session.user.id } } } },
+          { visibility: "PAID" },
         ],
       },
     },
@@ -51,6 +52,7 @@ export async function POST(
       OR: [
         { visibility: "PUBLIC" },
         { visibility: "TENANT_PLAYERS", tenant: { members: { some: { userId: session.user.id } } } },
+        { visibility: "PAID" },
       ],
     },
     select: { id: true, tenantId: true },
@@ -82,6 +84,7 @@ export async function DELETE(
       OR: [
         { visibility: "PUBLIC" },
         { visibility: "TENANT_PLAYERS", tenant: { members: { some: { userId: session.user.id } } } },
+        { visibility: "PAID" },
       ],
     },
     select: { id: true },
