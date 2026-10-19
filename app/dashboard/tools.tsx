@@ -990,7 +990,13 @@ function SettingsPanel() {
       }
       profile.avatarUrl = avatarUrl;
       profile.notifications = form.get("notifications") === "on" ? "true" : "false";
-      await sendJson("/api/settings", "PATCH", profile);
+      const saved = await sendJson("/api/settings", "PATCH", profile) as { emailVerificationRequired?: boolean; emailSent?: boolean };
+      const pendingEmail = String(profile.email ?? "").trim();
+      if (saved.emailVerificationRequired && pendingEmail) {
+        sessionStorage.setItem("webmondial.pendingVerificationEmail", pendingEmail);
+        router.push(`/verification-email?${saved.emailSent ? "sent=1" : "deliveryError=1"}`);
+        return;
+      }
       applyPreferences(theme, language);
       setUser((current) => current ? {
         ...current,
@@ -1025,9 +1031,9 @@ function SettingsPanel() {
   async function changePassword(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     try {
-      await sendJson("/api/settings", "PUT", { currentPassword, newPassword });
+      const result = await sendJson("/api/settings", "PUT", { currentPassword, newPassword }) as { notificationSent?: boolean };
       setCurrentPassword(""); setNewPassword("");
-      setMessage(labels.passwordChanged);
+      setMessage(result.notificationSent ? labels.passwordChanged : labels.passwordChangedEmailFailed);
     } catch (cause) { setMessage(cause instanceof Error ? cause.message : labels.passwordChangeFailed); }
   }
   async function requestHandle(event: FormEvent<HTMLFormElement>) {

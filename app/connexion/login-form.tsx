@@ -12,11 +12,13 @@ import PasswordInput from "@/components/password-input";
 import { useLanguage } from "@/components/language-switcher";
 import { messagesFor } from "@/lib/i18n";
 
-export default function LoginForm({ tenantHandle = "", returnTo = "", partnerSignup = false, passwordReset = false }: {
+export default function LoginForm({ tenantHandle = "", returnTo = "", partnerSignup = false, passwordReset = false, passwordResetEmailFailed = false, emailVerified = false }: {
   tenantHandle?: string;
   returnTo?: string;
   partnerSignup?: boolean;
   passwordReset?: boolean;
+  passwordResetEmailFailed?: boolean;
+  emailVerified?: boolean;
 }) {
   const language = useLanguage();
   const labels = messagesFor(language);
@@ -34,12 +36,12 @@ export default function LoginForm({ tenantHandle = "", returnTo = "", partnerSig
     setFormError("");
     try {
       const result = await signIn("credentials", {
-        identifier: values.identifier,
+        email: values.email,
         password: values.password,
         redirect: false,
       });
       if (!result || result.error) {
-        setFormError("Email/téléphone ou mot de passe incorrect.");
+        setFormError("Email ou mot de passe incorrect. Si vous venez de créer votre compte, vérifiez votre adresse email.");
         return;
       }
       if (tenantHandle) {
@@ -75,9 +77,11 @@ export default function LoginForm({ tenantHandle = "", returnTo = "", partnerSig
   return (
     <form className="auth-form" onSubmit={handleSubmit(onSubmit)} noValidate>
       {passwordReset && <p className="dashboard-message" role="status">{labels.passwordResetSuccess ?? "Votre mot de passe a été réinitialisé. Vous pouvez vous connecter."}</p>}
-      <label className="field-label" htmlFor="identifier">{labels.identifier}</label>
-      <input className="text-field" id="identifier" autoComplete="username" placeholder="vous@exemple.com" {...register("identifier")} />
-      {errors.identifier && <span className="field-error">{errors.identifier.message}</span>}
+      {passwordResetEmailFailed && <p className="form-error" role="alert">{labels.passwordResetEmailFailed}</p>}
+      {emailVerified && <p className="dashboard-message" role="status">{labels.emailVerifiedSuccess}</p>}
+      <label className="field-label" htmlFor="email">{labels.email}</label>
+      <input className="text-field" id="email" type="email" autoComplete="email" placeholder="vous@exemple.com" {...register("email")} />
+      {errors.email && <span className="field-error">{errors.email.message}</span>}
       <label className="field-label" htmlFor="password">{labels.password}</label>
       <PasswordInput className="text-field" id="password" autoComplete="current-password" {...register("password")} />
       {errors.password && <span className="field-error">{errors.password.message}</span>}

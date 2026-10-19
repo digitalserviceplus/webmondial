@@ -39,11 +39,11 @@ async function main() {
     const admin = existingAdmin
       ? await tx.user.update({
           where: { id: existingAdmin.id },
-          data: { name: displayName, passwordHash },
+          data: { name: displayName, passwordHash, emailVerifiedAt: new Date() },
           select: { id: true },
         })
       : await tx.user.create({
-          data: { email, name: displayName, passwordHash, role: "ADMIN" },
+          data: { email, name: displayName, passwordHash, role: "ADMIN", emailVerifiedAt: new Date() },
           select: { id: true },
         });
 

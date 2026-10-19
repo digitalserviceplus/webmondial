@@ -100,6 +100,7 @@ model User {
   email                      String?                   @unique
   phone                      String?                   @unique
   passwordHash               String?
+  emailVerifiedAt            DateTime?
   country                    String?
   avatarUrl                  String?
   role                       UserRole                  @default(PLAYER)
@@ -125,6 +126,7 @@ model User {
   invitationsReceived        AdminInvitation[]         @relation("InvitationRecipient")
   invitationsCreated         AdminInvitation[]         @relation("InvitationCreator")
   passwordResetTokens        PasswordResetToken[]
+  emailVerificationCode      EmailVerificationCode?
 
   @@index([role, createdAt])
 }
@@ -512,4 +514,16 @@ model PasswordResetToken {
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, expiresAt, usedAt])
+}
+
+model EmailVerificationCode {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  codeHash  String
+  attempts  Int      @default(0)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
 }

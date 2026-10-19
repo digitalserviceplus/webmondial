@@ -7,17 +7,17 @@ import LanguageSwitcher, { T } from "@/components/language-switcher";
 async function LoginContent({
   searchParams,
 }: {
-  searchParams: Promise<{ tenant?: string; partner?: string; passwordReset?: string; returnTo?: string }>;
+  searchParams: Promise<{ tenant?: string; partner?: string; passwordReset?: string; notificationSent?: string; emailVerified?: string; returnTo?: string }>;
 }) {
-  const { tenant = "", partner, passwordReset, returnTo = "" } = await searchParams;
+  const { tenant = "", partner, passwordReset, notificationSent, emailVerified, returnTo = "" } = await searchParams;
   const safeReturnTo = tenant && returnTo === `/${tenant}` ? returnTo : "";
-  return <LoginForm tenantHandle={tenant} returnTo={safeReturnTo} partnerSignup={partner === "1"} passwordReset={passwordReset === "1"} />;
+  return <LoginForm tenantHandle={tenant} returnTo={safeReturnTo} partnerSignup={partner === "1"} passwordReset={passwordReset === "1"} passwordResetEmailFailed={passwordReset === "1" && notificationSent === "0"} emailVerified={emailVerified === "1"} />;
 }
 
 export default function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tenant?: string; partner?: string; passwordReset?: string; returnTo?: string }>;
+  searchParams: Promise<{ tenant?: string; partner?: string; passwordReset?: string; notificationSent?: string; emailVerified?: string; returnTo?: string }>;
 }) {
   return (
     <main className="auth-page">

@@ -33,7 +33,10 @@ export async function POST(request: Request) {
       data: { acceptedAt: new Date() },
     });
     if (updated.count !== 1) return false;
-    await tx.user.update({ where: { id: invitation.userId }, data: { passwordHash } });
+    await tx.user.update({
+      where: { id: invitation.userId },
+      data: { passwordHash, emailVerifiedAt: new Date() },
+    });
     return true;
   });
   if (!accepted) return NextResponse.json({ error: "Ce lien a déjà été utilisé." }, { status: 409 });

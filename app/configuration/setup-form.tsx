@@ -38,13 +38,13 @@ export default function SetupForm({ setupToken }: { setupToken?: string }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const result = (await response.json()) as { error?: string };
+      const result = (await response.json()) as { error?: string; emailSent?: boolean };
       if (!response.ok) {
         setFormError(result.error ?? "La configuration a échoué.");
         return;
       }
-      router.push("/connexion");
-      router.refresh();
+      sessionStorage.setItem("webmondial.pendingVerificationEmail", values.email);
+      router.push(`/verification-email?${result.emailSent ? "sent=1" : "deliveryError=1"}`);
     } catch {
       setFormError("Impossible de joindre le serveur. Réessayez dans un instant.");
     } finally {

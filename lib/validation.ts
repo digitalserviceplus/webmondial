@@ -1,10 +1,5 @@
 import { z } from "zod";
 
-const optionalEmail = z.preprocess(
-  (value) => (value === "" ? undefined : value),
-  z.string().trim().email().optional(),
-);
-
 const optionalPhone = z.preprocess(
   (value) => (value === "" ? undefined : value),
   z.string().trim().regex(/^\+[1-9]\d{7,14}$/, "Utilisez le format international, ex. +229XXXXXXXX.").optional(),
@@ -36,15 +31,14 @@ export const bookmakerSchema = z.object({
 });
 
 export const loginSchema = z.object({
-  identifier: z.string().trim().min(3, "Saisissez votre email ou téléphone."),
+  email: z.string().trim().email("Saisissez une adresse email valide.").max(320).toLowerCase(),
   password: z.string().min(1, "Saisissez votre mot de passe."),
 });
 
 export const registrationSchema = z
   .object({
     name: z.string().trim().min(2, "Le nom doit comporter au moins 2 caractères.").max(120),
-    email: optionalEmail,
-    phone: optionalPhone.optional(),
+    email: z.string().trim().email("Saisissez une adresse email valide.").max(320).toLowerCase(),
     country: z.string().trim().min(2).max(80),
     password: strongPasswordSchema,
     language: z.enum(["fr", "en", "es"]).optional(),
@@ -52,11 +46,21 @@ export const registrationSchema = z
       (value) => (value === "" || value === undefined ? undefined : value),
       z.string().trim().toLowerCase().min(1).max(40).optional(),
     ),
-  })
-  .refine((values) => Boolean(values.email || values.phone), {
-    message: "Saisissez un email ou un numéro de téléphone.",
-    path: ["email"],
   });
+
+export const emailVerificationSchema = z.object({
+  email: z.string().trim().email().max(320).toLowerCase(),
+  code: z.string().trim().regex(/^\d{8}$/, "Saisissez le code à 8 chiffres."),
+});
+
+export const passwordResetSchema = z.object({
+  token: z.string().min(32).max(128),
+  password: strongPasswordSchema,
+  confirmPassword: z.string().max(128),
+}).refine((values) => values.password === values.confirmPassword, {
+  message: "Les mots de passe ne correspondent pas.",
+  path: ["confirmPassword"],
+});
 
 export const initialAdminSchema = z.object({
   name: z.string().trim().min(2).max(120),

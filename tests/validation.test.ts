@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { bookmakerSchema, initialAdminSchema, loginSchema, registrationSchema, strongPasswordSchema } from "../lib/validation";
+import { bookmakerSchema, emailVerificationSchema, initialAdminSchema, loginSchema, passwordResetSchema, registrationSchema, strongPasswordSchema } from "../lib/validation";
+import { createEmailVerificationCode, hashEmailVerificationCode, matchesEmailVerificationCode } from "../lib/email-verification";
 
-test("player registration accepts an email and a URL-safe tenant handle", () => {
+test("player registration requires an email and accepts a URL-safe tenant handle", () => {
   const result = registrationSchema.safeParse({
     name: "Amira Diallo",
     email: "AMIRA@example.com",
-    phone: "",
     country: "Benin",
     password: "A-long-password-123",
     tenantHandle: "xpro-demo",
@@ -14,16 +14,14 @@ test("player registration accepts an email and a URL-safe tenant handle", () => 
 
   assert.equal(result.success, true);
   if (result.success) {
-    assert.equal(result.data.email, "AMIRA@example.com");
-    assert.equal(result.data.phone, undefined);
+    assert.equal(result.data.email, "amira@example.com");
   }
 });
 
-test("player registration requires at least one unique contact identifier", () => {
+test("player registration rejects a missing or invalid email", () => {
   const result = registrationSchema.safeParse({
     name: "Amira Diallo",
     email: "",
-    phone: "",
     country: "Benin",
     password: "A-long-password-123",
     tenantHandle: "xpro-demo",
@@ -32,13 +30,12 @@ test("player registration requires at least one unique contact identifier", () =
   assert.equal(result.success, false);
 });
 
-test("player phone numbers must use international notation", () => {
+test("player registration cannot use a phone number instead of an email", () => {
   const result = registrationSchema.safeParse({
     name: "Amira Diallo",
-    phone: "0022912345678",
+    phone: "+22912345678",
     country: "Benin",
     password: "A-long-password-123",
-    tenantHandle: "xpro-demo",
   });
 
   assert.equal(result.success, false);
@@ -80,7 +77,27 @@ test("bookmaker form accepts checkbox values for active state", () => {
   assert.equal(bookmakerSchema.safeParse({ ...formValues, signupUrl: "javascript:alert(1)" }).success, false);
 });
 
-test("login accepts an email or international phone identifier", () => {
-  assert.equal(loginSchema.safeParse({ identifier: "owner@example.com", password: "secret" }).success, true);
-  assert.equal(loginSchema.safeParse({ identifier: "+22912345678", password: "secret" }).success, true);
+test("login accepts email only", () => {
+  assert.equal(loginSchema.safeParse({ email: "owner@example.com", password: "secret" }).success, true);
+  assert.equal(loginSchema.safeParse({ email: "+22912345678", password: "secret" }).success, false);
+});
+
+test("email verification accepts only an eight-digit code", () => {
+  assert.equal(emailVerificationSchema.safeParse({ email: "OWNER@example.com", code: "12345678" }).success, true);
+  assert.equal(emailVerificationSchema.safeParse({ email: "owner@example.com", code: "1234" }).success, false);
+});
+
+test("verification codes are random eight-digit values and use a keyed hash", () => {
+  const code = createEmailVerificationCode();
+  assert.match(code, /^\d{8}$/);
+  const storedHash = hashEmailVerificationCode(code, "test-secret");
+  assert.equal(matchesEmailVerificationCode(code, storedHash, "test-secret"), true);
+  assert.equal(matchesEmailVerificationCode(code, storedHash, "different-secret"), false);
+  assert.equal(matchesEmailVerificationCode("00000000", storedHash, "test-secret"), false);
+});
+
+test("password reset requires matching strong passwords", () => {
+  const values = { token: "a".repeat(32), password: "A-long-password-123", confirmPassword: "A-long-password-123" };
+  assert.equal(passwordResetSchema.safeParse(values).success, true);
+  assert.equal(passwordResetSchema.safeParse({ ...values, confirmPassword: "different" }).success, false);
 });

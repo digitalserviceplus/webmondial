@@ -18,16 +18,22 @@ export default function ResetPasswordForm({ token }: { token: string }) {
     event.preventDefault();
     setBusy(true);
     setError("");
-    const password = new FormData(event.currentTarget).get("password");
+    const form = new FormData(event.currentTarget);
+    const password = form.get("password");
+    const confirmPassword = form.get("confirmPassword");
     try {
       const response = await fetch("/api/auth/reset-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, password }),
+        body: JSON.stringify({
+          token,
+          password,
+          confirmPassword,
+        }),
       });
-      const result = await response.json() as { error?: string };
+      const result = await response.json() as { error?: string; notificationSent?: boolean };
       if (!response.ok) throw new Error(result.error ?? "Impossible de modifier le mot de passe.");
-      router.replace("/connexion?passwordReset=1");
+      router.replace(`/connexion?passwordReset=1&notificationSent=${result.notificationSent ? "1" : "0"}`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Impossible de joindre le serveur.");
     } finally {
@@ -40,6 +46,8 @@ export default function ResetPasswordForm({ token }: { token: string }) {
       <label className="field-label" htmlFor="new-password">{labels.passwordLabel}</label>
       <PasswordInput className="text-field" id="new-password" name="password" minLength={12} maxLength={128} autoComplete="new-password" required />
       <p className="form-legal">{labels.passwordRequirements}</p>
+      <label className="field-label" htmlFor="confirm-password">{labels.confirmPassword}</label>
+      <PasswordInput className="text-field" id="confirm-password" name="confirmPassword" minLength={12} maxLength={128} autoComplete="new-password" required />
       {error && <p className="form-error" role="alert">{error}</p>}
       <button className="button button-primary auth-submit" type="submit" disabled={busy}>
         {busy ? <LoaderCircle className="spin" size={16} /> : <>{labels.resetSubmit} <ArrowRight size={16} /></>}

@@ -6,6 +6,8 @@ import { initialAdminSchema } from "@/lib/validation";
 import { prisma } from "@/lib/prisma";
 import { rateLimit, requestKey } from "@/lib/rate-limit";
 import { ensureGeneralAdminTenant } from "@/lib/admin-general-tenant";
+import { getAppUrl, sendVerificationEmail } from "@/lib/email";
+import { createEmailVerificationCode, EMAIL_VERIFICATION_LIFETIME_MS, hashEmailVerificationCode } from "@/lib/email-verification";
 
 function matchesSetupToken(candidate: string, expected: string) {
   const candidateBuffer = Buffer.from(candidate);
@@ -39,8 +41,14 @@ export async function POST(request: Request) {
   if (!matchesSetupToken(parsed.data.setupToken, expectedToken)) {
     return NextResponse.json({ error: "Le code de configuration est invalide." }, { status: 403 });
   }
+  if (!process.env.AUTH_SECRET) {
+    return NextResponse.json({ error: "Le service d’authentification n’est pas configuré." }, { status: 503 });
+  }
 
   const passwordHash = await hash(parsed.data.password, 12);
+  const code = createEmailVerificationCode();
+  const codeHash = hashEmailVerificationCode(code, process.env.AUTH_SECRET);
+  let adminId = "";
 
   try {
     const admin = await prisma.$transaction(async (tx) => {
@@ -61,6 +69,14 @@ export async function POST(request: Request) {
         },
         select: { id: true },
       });
+      adminId = admin.id;
+      await tx.emailVerificationCode.create({
+        data: {
+          userId: admin.id,
+          codeHash,
+          expiresAt: new Date(Date.now() + EMAIL_VERIFICATION_LIFETIME_MS),
+        },
+      });
       if (parsed.data.language) {
         await tx.userSettings.create({ data: { userId: admin.id, language: parsed.data.language } });
       }
@@ -80,5 +96,15 @@ export async function POST(request: Request) {
     throw error;
   }
 
-  return NextResponse.json({ ok: true }, { status: 201 });
+  const email = parsed.data.email.toLowerCase();
+  let emailSent = true;
+  try {
+    const verificationUrl = new URL("/verification-email", getAppUrl(request)).toString();
+    await sendVerificationEmail(email, code, verificationUrl);
+  } catch {
+    emailSent = false;
+    await prisma.emailVerificationCode.deleteMany({ where: { userId: adminId, codeHash } });
+    console.error("Échec d’envoi de l’email de vérification de l’admin général. Vérifiez la configuration SMTP.");
+  }
+  return NextResponse.json({ ok: true, emailSent }, { status: 201 });
 }

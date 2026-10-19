@@ -2,8 +2,9 @@ import { createHash, randomBytes } from "node:crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { sendPasswordResetEmail } from "@/lib/email";
+import { getAppUrl, isEmailDeliveryConfigured, sendPasswordResetEmail } from "@/lib/email";
 import { rateLimit, requestKey } from "@/lib/rate-limit";
+import { hashRateLimitIdentifier } from "@/lib/email-verification";
 
 const requestSchema = z.object({ email: z.string().trim().email().max(320) });
 const TOKEN_LIFETIME_MS = 30 * 60_000;
@@ -12,18 +13,23 @@ export async function POST(request: Request) {
   if (!(await rateLimit(requestKey(request, "forgot-password"), 5, 60 * 60_000))) {
     return NextResponse.json({ error: "Trop de demandes. Réessayez plus tard." }, { status: 429 });
   }
-  if (process.env.NODE_ENV === "production" && (
-    !process.env.EMAIL_SERVER_URL ||
-    !process.env.EMAIL_FROM ||
-    !(process.env.NEXT_PUBLIC_APP_URL || process.env.AUTH_URL)
-  )) {
-    return NextResponse.json({ error: "Le service de récupération par email n’est pas configuré." }, { status: 503 });
+  if (!isEmailDeliveryConfigured()) {
+    return NextResponse.json({ error: "Configurez SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_FROM et APP_URL pour activer la récupération." }, { status: 503 });
   }
 
   const parsed = requestSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Saisissez une adresse email valide." }, { status: 400 });
 
   const email = parsed.data.email.toLowerCase();
+  if (!(await rateLimit(`forgot-password-email:${hashRateLimitIdentifier(email)}`, 3, 60 * 60_000))) {
+    return NextResponse.json({ message: "Si cette adresse correspond à un compte, un lien de récupération sera envoyé." });
+  }
+  let appUrl: URL;
+  try {
+    appUrl = getAppUrl(request);
+  } catch {
+    return NextResponse.json({ error: "Le lien de récupération n’est pas configuré. Vérifiez APP_URL." }, { status: 503 });
+  }
   const user = await prisma.user.findUnique({
     where: { email },
     select: { id: true, email: true },
@@ -40,21 +46,14 @@ export async function POST(request: Request) {
     prisma.passwordResetToken.create({ data: { userId: user.id, tokenHash, expiresAt } }),
   ]);
 
-  const origin = process.env.NEXT_PUBLIC_APP_URL ?? process.env.AUTH_URL ?? new URL(request.url).origin;
-  const resetUrl = new URL("/reinitialiser-mot-de-passe", origin);
+  const resetUrl = new URL("/reinitialiser-mot-de-passe", appUrl);
   resetUrl.searchParams.set("token", token);
-  if (process.env.NODE_ENV === "development") {
-    return NextResponse.json({
-      message: "Lien de récupération local généré. Il expire dans 30 minutes.",
-      resetUrl: resetUrl.toString(),
-    });
-  }
 
   try {
     await sendPasswordResetEmail(user.email, resetUrl.toString());
-  } catch (error) {
+  } catch {
     await prisma.passwordResetToken.deleteMany({ where: { tokenHash, usedAt: null } });
-    console.error("Échec d’envoi de l’email de récupération.", error);
+    console.error("Échec d’envoi de l’email de récupération. Vérifiez la configuration SMTP.");
     return NextResponse.json({ message: "Si cette adresse correspond à un compte, un lien de récupération sera envoyé." });
   }
 

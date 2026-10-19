@@ -37,15 +37,18 @@ const defaults = {
   SASPAY_API_KEY: "",
   SASPAY_WEBHOOK_SECRET: "",
   APP_URL: "",
-  EMAIL_SERVER_URL: "",
-  EMAIL_FROM: "",
+  SMTP_HOST: "smtp.gmail.com",
+  SMTP_PORT: "587",
+  SMTP_USER: "",
+  SMTP_PASSWORD: "",
+  SMTP_FROM: "",
   WEBMONDIAL_LOCAL_DB: "embedded",
 };
 const linesToAdd = [];
 
 for (const [key, value] of Object.entries(defaults)) {
   const configuredValue = process.env[key] ?? existingEnv[key];
-  const optionalEmptyValue = ["SASPAY_API_KEY", "SASPAY_WEBHOOK_SECRET", "APP_URL"].includes(key) && configuredValue === "";
+  const optionalEmptyValue = ["SASPAY_API_KEY", "SASPAY_WEBHOOK_SECRET", "APP_URL", "SMTP_USER", "SMTP_PASSWORD", "SMTP_FROM"].includes(key) && configuredValue === "";
   const placeholderSecret = key === "AUTH_SECRET" && configuredValue?.startsWith("replace-with-");
   if (configuredValue === undefined || (!optionalEmptyValue && !configuredValue.trim()) || placeholderSecret) {
     linesToAdd.push(`${key}=${value}`);
