@@ -78,4 +78,4 @@ The local database and uploads under `.local-data` are ignored by Git and must n
 5. Configure Vercel production variables: `DATABASE_URL` (Neon pooled connection), `AUTH_SECRET`, `AUTH_URL`, `NEXT_PUBLIC_APP_URL`, `APP_URL`, a random `INITIAL_SETUP_TOKEN`, and `CRON_SECRET`. Set `SASPAY_API_KEY` and `SASPAY_WEBHOOK_SECRET` directly in Vercel when enabling live payments; configure `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, and `SMTP_FROM` for verification and account emails. Never expose these values in the browser, Git, or chat.
 6. Verify the SasPay webhook URL at `https://<production-domain>/api/payments/saspay/webhook`, and remove `INITIAL_SETUP_TOKEN` from Vercel after creating the first admin général.
 
-Apply committed schema changes through `npm run db:deploy`. Never run the import against a database that already contains live production data.
+Vercel production builds apply pending committed Prisma migrations before building; preview builds do not run migrations. For other deployment targets, apply committed schema changes through `npm run db:deploy`. Never run the import against a database that already contains live production data.
