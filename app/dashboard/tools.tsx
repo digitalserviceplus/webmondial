@@ -464,7 +464,6 @@ function PostComposer({
         {visibility === "PAID" && <label>{labels.price} (XOF)<input className="text-field" type="number" min="1" step="1" name="price" required /></label>}
         <label>{labels.mediaUrl} <span>({labels.optional})</span><input className="text-field" type="url" name="mediaUrl" placeholder="https://…" /></label>
         <PostMediaFileField key={mediaFieldVersion} />
-        <p className="form-legal">{labels.mediaUploadDetails}</p>
         <button className="button button-lime" type="submit" disabled={busy}>{busy ? <LoaderCircle className="spin" size={16} /> : <Plus size={16} />} {labels.publishPost}</button>
       </form>
     </section>
