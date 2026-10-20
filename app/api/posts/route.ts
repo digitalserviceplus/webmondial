@@ -25,6 +25,18 @@ function preview(content: string) {
   return content.length > 220 ? `${content.slice(0, 220).trimEnd()}…` : content;
 }
 
+function mediaTypeFromUrl(value: string): "IMAGE" | "VIDEO" | undefined {
+  let pathname: string;
+  try {
+    pathname = new URL(value).pathname.toLowerCase();
+  } catch {
+    return undefined;
+  }
+  if (/\.(jpe?g|png|gif|webp)$/.test(pathname)) return "IMAGE";
+  if (/\.(mp4|webm)$/.test(pathname)) return "VIDEO";
+  return undefined;
+}
+
 export async function GET(request: Request) {
   const session = await auth();
   const url = new URL(request.url);
@@ -217,9 +229,7 @@ export async function POST(request: Request) {
   if (parsed.data.visibility === "PAID" && !parsed.data.price) {
     return NextResponse.json({ error: "Indiquez un prix pour ce contenu payant." }, { status: 400 });
   }
-  if (parsed.data.mediaUrl && !parsed.data.mediaType) {
-    return NextResponse.json({ error: "Sélectionnez le type du média associé à la publication." }, { status: 400 });
-  }
+  let mediaType = parsed.data.mediaType;
   if (parsed.data.mediaUrl) {
     const localMediaId = /^\/api\/media\/([^/]+)$/.exec(parsed.data.mediaUrl)?.[1];
     if (localMediaId && isMediaId(localMediaId)) {
@@ -228,11 +238,11 @@ export async function POST(request: Request) {
         !metadata ||
         metadata.purpose !== "post" ||
         metadata.ownerId !== session.user.id ||
-        metadata.tenantId !== tenant.id ||
-        metadata.mediaType !== parsed.data.mediaType
+        metadata.tenantId !== tenant.id
       ) {
-        return NextResponse.json({ error: "Ce média n’appartient pas à votre espace ou son type ne correspond pas." }, { status: 403 });
+        return NextResponse.json({ error: "Ce média n’appartient pas à votre espace." }, { status: 403 });
       }
+      mediaType = metadata.mediaType;
     } else {
       let protocol: string;
       try {
@@ -243,7 +253,9 @@ export async function POST(request: Request) {
       if (protocol !== "https:") {
         return NextResponse.json({ error: "Le média doit utiliser une adresse HTTPS." }, { status: 400 });
       }
+      mediaType = mediaTypeFromUrl(parsed.data.mediaUrl) ?? mediaType;
     }
+    if (!mediaType) return NextResponse.json({ error: "Le type du média n’a pas pu être détecté." }, { status: 400 });
   }
 
   let post: { id: string; visibility: string; category: string };
@@ -260,7 +272,8 @@ export async function POST(request: Request) {
           visibility: parsed.data.visibility,
           price: parsed.data.visibility === "PAID" ? parsed.data.price : null,
           mediaUrl: parsed.data.mediaUrl,
-          mediaType: parsed.data.mediaUrl ? parsed.data.mediaType : null,
+          mediaType: parsed.data.mediaUrl ? mediaType : null,
+          published: true,
         },
         select: { id: true, visibility: true, category: true },
       });
@@ -370,21 +383,24 @@ export async function PATCH(request: Request) {
   if (parsed.data.visibility === "PAID" && !parsed.data.price) {
     return NextResponse.json({ error: "Indiquez un prix pour ce contenu payant." }, { status: 400 });
   }
+  let mediaType = parsed.data.mediaType;
   if (parsed.data.mediaUrl) {
     const localMediaId = /^\/api\/media\/([^/]+)$/.exec(parsed.data.mediaUrl)?.[1];
     if (localMediaId && isMediaId(localMediaId)) {
       const metadata = await readMediaMetadata(localMediaId);
-      if (!metadata || metadata.purpose !== "post" || metadata.ownerId !== session.user.id || metadata.tenantId !== post.tenantId || metadata.mediaType !== parsed.data.mediaType) {
-        return NextResponse.json({ error: "Le média ne correspond pas à cet espace ou à ce type." }, { status: 403 });
+      if (!metadata || metadata.purpose !== "post" || metadata.ownerId !== session.user.id || metadata.tenantId !== post.tenantId) {
+        return NextResponse.json({ error: "Ce média n’appartient pas à cet espace." }, { status: 403 });
       }
+      mediaType = metadata.mediaType;
     } else {
       try {
         if (new URL(parsed.data.mediaUrl).protocol !== "https:") throw new Error("URL");
       } catch {
         return NextResponse.json({ error: "Le média doit utiliser une adresse HTTPS ou un téléversement valide." }, { status: 400 });
       }
+      mediaType = mediaTypeFromUrl(parsed.data.mediaUrl) ?? mediaType;
     }
-    if (!parsed.data.mediaType) return NextResponse.json({ error: "Précisez le type du média." }, { status: 400 });
+    if (!mediaType) return NextResponse.json({ error: "Le type du média n’a pas pu être détecté." }, { status: 400 });
   }
   const updated = await prisma.post.update({
     where: { id: post.id },
@@ -396,7 +412,7 @@ export async function PATCH(request: Request) {
       visibility: parsed.data.visibility,
       price: parsed.data.visibility === "PAID" ? parsed.data.price : null,
       mediaUrl: parsed.data.mediaUrl || null,
-      mediaType: parsed.data.mediaUrl ? parsed.data.mediaType : null,
+      mediaType: parsed.data.mediaUrl ? mediaType : null,
     },
     select: { id: true },
   });

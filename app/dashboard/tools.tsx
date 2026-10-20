@@ -115,6 +115,44 @@ function Message({ value, onClose }: { value: string; onClose: () => void }) {
   return <div className="dashboard-message" role="status"><span>{value}</span><button type="button" onClick={onClose} aria-label={labels.close}>×</button></div>;
 }
 
+function PostMediaPreview({ url, mediaType }: { url: string | null; mediaType: "IMAGE" | "VIDEO" | null }) {
+  if (!url || !mediaType) return null;
+  return mediaType === "IMAGE"
+    ? <Image className="post-media post-media-image" src={url} alt="" width={1200} height={900} unoptimized />
+    : <video className="post-media post-media-video" src={url} controls preload="metadata" />;
+}
+
+function PostMediaFileField({
+  currentUrl,
+  currentType,
+}: {
+  currentUrl?: string | null;
+  currentType?: "IMAGE" | "VIDEO" | null;
+}) {
+  const labels = messagesFor(useLanguage());
+  const [file, setFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const previewUrlRef = useRef<string | null>(null);
+  useEffect(() => () => {
+    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+  }, []);
+  const previewType = file?.type.startsWith("image/") ? "IMAGE" : file ? "VIDEO" : null;
+
+  return (
+    <>
+      <label>{labels.uploadMedia} <span>({labels.maxUploadSize})</span><input className="text-field" type="file" name="mediaFile" accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/webm" onChange={(event) => {
+        if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+        const selectedFile = event.currentTarget.files?.[0] ?? null;
+        const objectUrl = selectedFile ? URL.createObjectURL(selectedFile) : null;
+        previewUrlRef.current = objectUrl;
+        setFile(selectedFile);
+        setPreviewUrl(objectUrl);
+      }} /></label>
+      <PostMediaPreview url={previewUrl ?? currentUrl ?? null} mediaType={file ? previewType : currentType ?? null} />
+    </>
+  );
+}
+
 function Feed({ tenantHandle, category, managePosts = false, refreshToken = 0 }: { tenantHandle: string; category?: string; managePosts?: boolean; refreshToken?: number }) {
   const [posts, setPosts] = useState<PostItem[]>([]);
   const [tenantProfile, setTenantProfile] = useState<{ displayName: string; avatarUrl: string | null; handle: string } | null>(null);
@@ -192,16 +230,24 @@ function Feed({ tenantHandle, category, managePosts = false, refreshToken = 0 }:
   async function updatePost(post: PostItem, form: HTMLFormElement) {
     const values = new FormData(form);
     try {
+      let mediaUrl = String(values.get("mediaUrl") ?? "").trim() || undefined;
+      let mediaType = mediaUrl === post.mediaUrl ? post.mediaType ?? undefined : undefined;
+      const mediaFile = values.get("mediaFile");
+      if (mediaFile instanceof File && mediaFile.size > 0) {
+        const uploaded = await uploadMediaFile(mediaFile, "post", labels.mediaUploadError);
+        mediaUrl = uploaded.url;
+        mediaType = uploaded.mediaType;
+      }
       await sendJson("/api/posts", "PATCH", {
         id: post.id,
         title: String(values.get("title") ?? ""),
         category: String(values.get("category")),
         content: String(values.get("content") ?? ""),
         sport: String(values.get("sport") ?? ""),
-        visibility: post.visibility,
-        price: post.price ?? undefined,
-        mediaUrl: post.mediaUrl ?? undefined,
-        mediaType: post.mediaType ?? undefined,
+        visibility: String(values.get("visibility") ?? post.visibility),
+        price: values.get("price") ? Number(values.get("price")) : undefined,
+        mediaUrl,
+        mediaType,
       });
       setError(labels.postUpdated);
       setEditingPostId(null);
@@ -319,6 +365,15 @@ function Feed({ tenantHandle, category, managePosts = false, refreshToken = 0 }:
                 </select></label>
                 <label>{labels.postContent}<textarea className="text-field text-area" name="content" required maxLength={20000} rows={5} defaultValue={post.content} /></label>
                 <label>{labels.postSport}<input className="text-field" name="sport" defaultValue={post.sport ?? ""} maxLength={50} /></label>
+                <label>{labels.postVisibility}<select className="text-field" name="visibility" defaultValue={post.visibility}>
+                  <option value="TENANT_PLAYERS">{labels.communityVisibility}</option>
+                  <option value="PUBLIC">{labels.publicVisibility}</option>
+                  <option value="PRIVATE">{labels.privateVisibility}</option>
+                  <option value="PAID">{labels.paidVisibility}</option>
+                </select></label>
+                <label>{labels.price} (XOF) <span>({labels.optional})</span><input className="text-field" type="number" min="1" step="1" name="price" defaultValue={post.price ?? ""} /></label>
+                <label>{labels.mediaUrl} <span>({labels.optional})</span><input className="text-field" type="url" name="mediaUrl" defaultValue={post.mediaUrl ?? ""} placeholder="https://…" /></label>
+                <PostMediaFileField currentUrl={post.mediaUrl} currentType={post.mediaType} />
                 <div className="admin-actions"><button className="button button-primary" type="submit">{labels.save}</button><button className="button button-dark" type="button" onClick={() => setEditingPostId(null)}>{labels.cancel}</button></div>
               </form>}
             </article>
@@ -346,6 +401,7 @@ function PostComposer({
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [visibility, setVisibility] = useState("TENANT_PLAYERS");
+  const [mediaFieldVersion, setMediaFieldVersion] = useState(0);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
@@ -356,7 +412,7 @@ function PostComposer({
     try {
       const mediaFile = form.get("mediaFile");
       let mediaUrl = String(form.get("mediaUrl") ?? "") || undefined;
-      let mediaType = String(form.get("mediaType") ?? "") || undefined;
+      let mediaType: "IMAGE" | "VIDEO" | undefined;
       if (mediaFile instanceof File && mediaFile.size > 0) {
         const uploaded = await uploadMediaFile(mediaFile, "post", labels.mediaUploadError);
         mediaUrl = uploaded.url;
@@ -374,6 +430,7 @@ function PostComposer({
       });
       setMessage(labels.postPublished);
       formElement.reset();
+      setMediaFieldVersion((current) => current + 1);
       setVisibility("TENANT_PLAYERS");
       onPublished();
     } catch (cause) {
@@ -405,11 +462,8 @@ function PostComposer({
         <label>{labels.postVisibility}<select className="text-field" value={visibility} onChange={(event) => setVisibility(event.target.value)}><option value="TENANT_PLAYERS">{labels.communityVisibility}</option><option value="PUBLIC">{labels.publicVisibility}</option><option value="PRIVATE">{labels.privateVisibility}</option><option value="PAID" disabled={!canPublishPaid}>{labels.paidVisibility}{canPublishPaid ? "" : ` (${labels.annualSubscriptionRequired})`}</option></select></label>
         {!canPublishPaid && <p className="form-legal">{labels.postAnnualRequired}</p>}
         {visibility === "PAID" && <label>{labels.price} (XOF)<input className="text-field" type="number" min="1" step="1" name="price" required /></label>}
-        <div className="form-row">
-          <label>{labels.mediaUrl} <span>({labels.optional})</span><input className="text-field" type="url" name="mediaUrl" placeholder="https://…" /></label>
-          <label>{labels.postMediaType}<select className="text-field" name="mediaType"><option value="">{labels.noMedia}</option><option value="IMAGE">{labels.image}</option><option value="VIDEO">{labels.video}</option></select></label>
-        </div>
-        <label>{labels.uploadMedia} <span>({labels.maxUploadSize})</span><input className="text-field" type="file" name="mediaFile" accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/webm" /></label>
+        <label>{labels.mediaUrl} <span>({labels.optional})</span><input className="text-field" type="url" name="mediaUrl" placeholder="https://…" /></label>
+        <PostMediaFileField key={mediaFieldVersion} />
         <p className="form-legal">{labels.mediaUploadDetails}</p>
         <button className="button button-lime" type="submit" disabled={busy}>{busy ? <LoaderCircle className="spin" size={16} /> : <Plus size={16} />} {labels.publishPost}</button>
       </form>
