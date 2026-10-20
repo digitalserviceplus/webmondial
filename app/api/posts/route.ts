@@ -334,7 +334,6 @@ export async function PATCH(request: Request) {
       id: true,
       tenantId: true,
       authorId: true,
-      createdAt: true,
       tenant: { select: { ownerId: true, status: true } },
     },
   });
@@ -343,9 +342,6 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "Accès interdit." }, { status: 403 });
   }
   if (post.tenant.status !== "ACTIVE") return NextResponse.json({ error: "Cet espace n’est pas actif." }, { status: 403 });
-  if (Date.now() - post.createdAt.getTime() > 10 * 60_000) {
-    return NextResponse.json({ error: "La modification n’est possible que pendant les 10 minutes suivant la publication." }, { status: 403 });
-  }
   const subscription = session.user.role !== "SUPER_ADMIN"
     ? await prisma.subscription.findUnique({
       where: { tenantId: post.tenantId },

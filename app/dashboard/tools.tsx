@@ -168,16 +168,9 @@ function Feed({ tenantHandle, category, managePosts = false, refreshToken = 0 }:
   const [busy, setBusy] = useState(false);
   const [unlockingPostId, setUnlockingPostId] = useState<string | null>(null);
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
-  const [now, setNow] = useState<number | null>(null);
   const language = useLanguage();
   const labels = messagesFor(language);
   const locale = language === "en" ? "en-GB" : language === "es" ? "es-ES" : "fr-FR";
-  useEffect(() => {
-    const updateNow = () => setNow(Date.now());
-    updateNow();
-    const interval = window.setInterval(updateNow, 1_000);
-    return () => window.clearInterval(interval);
-  }, []);
   const load = useCallback(async (cursor?: string) => {
     setBusy(true);
     setError("");
@@ -358,7 +351,7 @@ function Feed({ tenantHandle, category, managePosts = false, refreshToken = 0 }:
                 {managePosts && <span>{post._count.views ?? 0} {labels.views}</span>}
                 <button type="button" className="text-action" onClick={() => void share(post)}><Copy size={14} /> {labels.share}</button>
                 {managePosts && <div className="post-management">
-                  {now !== null && now - new Date(post.createdAt).getTime() <= 10 * 60_000 && <button className="text-action" type="button" onClick={() => setEditingPostId(editingPostId === post.id ? null : post.id)}>{labels.editPost}</button>}
+                  <button className="text-action" type="button" onClick={() => setEditingPostId(editingPostId === post.id ? null : post.id)}>{labels.editPost}</button>
                   <button className="text-action post-delete-action" type="button" onClick={() => void deletePost(post)}>{labels.deletePost}</button>
                 </div>}
               </div>
