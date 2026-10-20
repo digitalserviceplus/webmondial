@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { z } from "zod";
 import { Prisma } from "@/generated/prisma/client";
 import { auth } from "@/auth";
@@ -272,30 +272,6 @@ export async function POST(request: Request) {
         },
         select: { id: true, visibility: true, category: true },
       });
-      const members = await tx.tenantMembership.findMany({
-        where: { tenantId: tenant.id },
-        select: { userId: true, user: { select: { settings: { select: { language: true } } } } },
-      });
-      if (members.length > 0) {
-        await tx.notification.createMany({
-          data: members.map(({ userId, user }) => ({
-            userId,
-            tenantId: tenant.id,
-            type: created.category === "PREMIUM" || created.visibility === "PAID" ? "NEW_PREMIUM_PUBLICATION" : "NEW_PUBLICATION",
-            title: user.settings?.language === "en"
-              ? `${tenant.displayName} published`
-              : user.settings?.language === "es"
-                ? `${tenant.displayName} ha publicado`
-                : `${tenant.displayName} a publié`,
-            body: user.settings?.language === "en"
-              ? "A new post is available in your community."
-              : user.settings?.language === "es"
-                ? "Hay una nueva publicación en tu comunidad."
-                : "Une nouvelle publication est disponible dans votre espace.",
-            href: `/${tenant.handle}`,
-          })),
-        });
-      }
       await tx.auditLog.create({
         data: { actorId: session.user.id, tenantId: tenant.id, action: "POST_CREATED", target: created.id },
       });
@@ -314,6 +290,37 @@ export async function POST(request: Request) {
       { status: schemaNotReady ? 503 : 500 },
     );
   }
+
+  after(async () => {
+    try {
+      const members = await prisma.tenantMembership.findMany({
+        where: { tenantId: tenant.id },
+        select: { userId: true, user: { select: { settings: { select: { language: true } } } } },
+      });
+      if (members.length > 0) {
+        await prisma.notification.createMany({
+          data: members.map(({ userId, user }) => ({
+            userId,
+            tenantId: tenant.id,
+            type: post.category === "PREMIUM" || post.visibility === "PAID" ? "NEW_PREMIUM_PUBLICATION" : "NEW_PUBLICATION",
+            title: user.settings?.language === "en"
+              ? `${tenant.displayName} published`
+              : user.settings?.language === "es"
+                ? `${tenant.displayName} ha publicado`
+                : `${tenant.displayName} a publié`,
+            body: user.settings?.language === "en"
+              ? "A new post is available in your community."
+              : user.settings?.language === "es"
+                ? "Hay una nueva publicación en tu comunidad."
+                : "Une nouvelle publication est disponible dans votre espace.",
+            href: `/${tenant.handle}`,
+          })),
+        });
+      }
+    } catch (error) {
+      console.error("Failed to notify tenant members about a new post.", error);
+    }
+  });
 
   return NextResponse.json({ ok: true, post }, { status: 201 });
 }

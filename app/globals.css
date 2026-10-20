@@ -349,7 +349,7 @@ main:has(> .site-header:not(.dashboard-header)) { padding-top: 78px; }
 .post-category { padding: 6px 9px; border-radius: 99px; background: #e8f1fd; color: #356eb6; font-size: 9px; font-weight: 800; }
 .post-content { margin: 16px 0; color: #3d414b; font-size: 13px; line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; }
 .post-media { display: block; width: 100%; margin: 13px 0; border-radius: 10px; background: #e8edf3; }
-.post-media-image { width: auto; max-width: 100%; height: auto; max-height: min(75vh, 760px); margin-inline: auto; object-fit: contain; }
+.post-media-image { width: 100%; max-width: 100%; height: auto; max-height: min(75vh, 760px); margin-inline: auto; object-fit: contain; }
 .post-media-video { max-height: 520px; aspect-ratio: 16 / 9; object-fit: contain; }
 .locked-content { display: grid; justify-items: center; gap: 11px; margin: 18px 0 6px; padding: 23px; border: 1px solid #dce6f2; border-radius: 14px; background: linear-gradient(145deg, #f7faff, #edf4fc); text-align: center; }
 .locked-content-icon { display: grid; width: 44px; height: 44px; place-items: center; border-radius: 14px; background: #e1edfb; color: #2868b8; }

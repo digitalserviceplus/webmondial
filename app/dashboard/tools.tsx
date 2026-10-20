@@ -75,7 +75,12 @@ const browserMediaTypes: Record<string, { extension: string; mediaType: "IMAGE" 
   "video/webm": { extension: "webm", mediaType: "VIDEO" },
 };
 
-async function uploadMediaFile(file: File, purpose: "post" | "avatar", errorMessage: string) {
+async function uploadMediaFile(
+  file: File,
+  purpose: "post" | "avatar",
+  errorMessage: string,
+  onProgress?: (percentage: number) => void,
+) {
   const labels = messagesFor(document.documentElement.lang);
   if (file.size > 20 * 1024 * 1024) throw new Error(labels.uploadFileTooLarge);
   const supportedType = browserMediaTypes[file.type];
@@ -93,6 +98,7 @@ async function uploadMediaFile(file: File, purpose: "post" | "avatar", errorMess
       clientPayload: JSON.stringify({ id, purpose, contentType: file.type }),
       contentType: file.type,
       multipart: file.size > 5 * 1024 * 1024,
+      onUploadProgress: ({ percentage }) => onProgress?.(Math.round(percentage)),
     });
     if (blob.pathname !== pathname) throw new Error(labels.mediaUnexpected);
     return { url: `/api/media/${id}`, mediaType: supportedType.mediaType };
@@ -402,6 +408,7 @@ function PostComposer({
   const [busy, setBusy] = useState(false);
   const [visibility, setVisibility] = useState("TENANT_PLAYERS");
   const [mediaFieldVersion, setMediaFieldVersion] = useState(0);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
@@ -414,9 +421,10 @@ function PostComposer({
       let mediaUrl = String(form.get("mediaUrl") ?? "") || undefined;
       let mediaType: "IMAGE" | "VIDEO" | undefined;
       if (mediaFile instanceof File && mediaFile.size > 0) {
-        const uploaded = await uploadMediaFile(mediaFile, "post", labels.mediaUploadError);
+        const uploaded = await uploadMediaFile(mediaFile, "post", labels.mediaUploadError, setUploadProgress);
         mediaUrl = uploaded.url;
         mediaType = uploaded.mediaType;
+        setUploadProgress(null);
       }
       await sendJson("/api/posts", "POST", {
         title: String(form.get("title") ?? ""),
@@ -437,6 +445,7 @@ function PostComposer({
       setMessage(cause instanceof Error ? cause.message : labels.publishError);
     } finally {
       setBusy(false);
+      setUploadProgress(null);
     }
   }
   return (
@@ -464,7 +473,8 @@ function PostComposer({
         {visibility === "PAID" && <label>{labels.price} (XOF)<input className="text-field" type="number" min="1" step="1" name="price" required /></label>}
         <label>{labels.mediaUrl} <span>({labels.optional})</span><input className="text-field" type="url" name="mediaUrl" placeholder="https://…" /></label>
         <PostMediaFileField key={mediaFieldVersion} />
-        <button className="button button-lime" type="submit" disabled={busy}>{busy ? <LoaderCircle className="spin" size={16} /> : <Plus size={16} />} {labels.publishPost}</button>
+        <p className="form-legal">{labels.mediaUploadDetails}</p>
+        <button className="button button-lime" type="submit" disabled={busy}>{busy ? <LoaderCircle className="spin" size={16} /> : <Plus size={16} />} {uploadProgress === null ? labels.publishPost : labels.uploadingMedia.replace("{progress}", String(uploadProgress))}</button>
       </form>
     </section>
   );
