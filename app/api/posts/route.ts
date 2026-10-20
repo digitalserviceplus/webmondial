@@ -236,11 +236,9 @@ export async function POST(request: Request) {
       const metadata = await readMediaMetadata(localMediaId);
       if (
         !metadata ||
-        metadata.purpose !== "post" ||
-        metadata.ownerId !== session.user.id ||
-        metadata.tenantId !== tenant.id
+        metadata.purpose !== "post"
       ) {
-        return NextResponse.json({ error: "Ce média n’appartient pas à votre espace." }, { status: 403 });
+        return NextResponse.json({ error: "Le média est introuvable ou ne peut pas être utilisé dans une publication." }, { status: 400 });
       }
       mediaType = metadata.mediaType;
     } else {
@@ -388,8 +386,8 @@ export async function PATCH(request: Request) {
     const localMediaId = /^\/api\/media\/([^/]+)$/.exec(parsed.data.mediaUrl)?.[1];
     if (localMediaId && isMediaId(localMediaId)) {
       const metadata = await readMediaMetadata(localMediaId);
-      if (!metadata || metadata.purpose !== "post" || metadata.ownerId !== session.user.id || metadata.tenantId !== post.tenantId) {
-        return NextResponse.json({ error: "Ce média n’appartient pas à cet espace." }, { status: 403 });
+      if (!metadata || metadata.purpose !== "post") {
+        return NextResponse.json({ error: "Le média est introuvable ou ne peut pas être utilisé dans une publication." }, { status: 400 });
       }
       mediaType = metadata.mediaType;
     } else {

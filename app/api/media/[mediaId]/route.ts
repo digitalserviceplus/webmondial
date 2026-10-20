@@ -49,19 +49,17 @@ export async function GET(
     return mediaResponse(bytes, metadata.contentType);
   }
 
-  if (!metadata.tenantId) return NextResponse.json({ error: "Média introuvable." }, { status: 404 });
   const posts = await prisma.post.findMany({
     where: {
-      tenantId: metadata.tenantId,
       mediaUrl,
       published: true,
       status: "ACTIVE",
+      tenant: { status: "ACTIVE" },
     },
     select: { id: true, tenantId: true, visibility: true },
   });
   const results = await prisma.couponResult.findMany({
     where: {
-      tenantId: metadata.tenantId,
       mediaUrl,
       post: { published: true, status: "ACTIVE", tenant: { status: "ACTIVE" } },
     },
@@ -84,7 +82,7 @@ export async function GET(
     }
   }
 
-  if (posts.length === 0 && results.length === 0 && session?.user) {
+  if (posts.length === 0 && results.length === 0 && session?.user && metadata.tenantId) {
     const tenant = await prisma.tenant.findUnique({
       where: { id: metadata.tenantId },
       select: { ownerId: true, status: true },
