@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import PasswordInput from "@/components/password-input";
 import AvatarImage from "@/components/avatar-image";
+import PostMediaImage from "@/components/post-media-image";
 import { LinkifiedText } from "@/components/linkified-text";
 import { applyPreferences } from "@/components/theme-provider";
 import { messagesFor } from "@/lib/i18n";
@@ -124,7 +125,7 @@ function Message({ value, onClose }: { value: string; onClose: () => void }) {
 function PostMediaPreview({ url, mediaType }: { url: string | null; mediaType: "IMAGE" | "VIDEO" | null }) {
   if (!url || !mediaType) return null;
   return mediaType === "IMAGE"
-    ? <Image className="post-media post-media-image" src={url} alt="" width={1200} height={900} unoptimized />
+    ? <PostMediaImage src={url} />
     : <video className="post-media post-media-video" src={url} controls preload="metadata" />;
 }
 
@@ -350,7 +351,7 @@ function Feed({ tenantHandle, category, managePosts = false, refreshToken = 0 }:
                   </button>
                 </div>
               )}
-              {!post.locked && post.mediaUrl && post.mediaType === "IMAGE" && <Image className="post-media post-media-image" src={post.mediaUrl} alt="" width={1200} height={900} unoptimized />}
+              {!post.locked && post.mediaUrl && post.mediaType === "IMAGE" && <PostMediaImage src={post.mediaUrl} />}
               {!post.locked && post.mediaUrl && post.mediaType === "VIDEO" && <video className="post-media post-media-video" src={post.mediaUrl} controls preload="metadata" />}
               <div className="post-footer">
                 <button type="button" className={`like-button ${post.liked ? "liked" : ""}`} onClick={() => void toggleLike(post)} aria-label={post.liked ? labels.unlike : labels.like}><Heart size={16} /> {post._count.likes}</button>
@@ -805,7 +806,7 @@ function ResultsManager({ tenantHandle }: { tenantHandle: string }) {
       </form>
       <div className="admin-list">{posts.filter((post) => post.result).map((post) => <article className="admin-card" key={post.id}>
         <strong>{post.title || post.category}</strong><span>{post.result?.title || labels.results}</span><p><LinkifiedText>{post.result?.content ?? ""}</LinkifiedText></p>
-        {post.result?.mediaUrl && post.result.mediaType === "IMAGE" && <Image className="post-media post-media-image" src={post.result.mediaUrl} alt="" width={1200} height={900} unoptimized />}
+        {post.result?.mediaUrl && post.result.mediaType === "IMAGE" && <PostMediaImage src={post.result.mediaUrl} />}
         {post.result?.mediaUrl && post.result.mediaType === "VIDEO" && <video className="post-media post-media-video" src={post.result.mediaUrl} controls preload="metadata" />}
       </article>)}</div>
     </> : <div className="empty-feed"><h3>{labels.resultEmpty}</h3></div>}
@@ -856,7 +857,7 @@ function ResultsFeed({ tenantHandle }: { tenantHandle: string }) {
       </div>
       <h3 className="feed-post-title">{result.title || result.post.title || labels.results}</h3>
       <p className="post-content"><LinkifiedText>{result.content}</LinkifiedText></p>
-      {result.mediaUrl && result.mediaType === "IMAGE" && <Image className="post-media post-media-image" src={result.mediaUrl} alt="" width={1200} height={900} unoptimized />}
+      {result.mediaUrl && result.mediaType === "IMAGE" && <PostMediaImage src={result.mediaUrl} />}
       {result.mediaUrl && result.mediaType === "VIDEO" && <video className="post-media post-media-video" src={result.mediaUrl} controls preload="metadata" />}
       <Link className="text-action" href={`/${tenantHandle}#post-${result.post.id}`}>{labels.sourceCoupon}</Link>
     </article>)}</div> : <div className="empty-feed"><h3>{labels.noPublicResults}</h3></div>}

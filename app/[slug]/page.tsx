@@ -1,6 +1,5 @@
 import { Suspense } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { io } from "next/cache";
 import { notFound, permanentRedirect } from "next/navigation";
 import type { Metadata } from "next";
@@ -13,6 +12,7 @@ import { PostActions } from "@/components/post-actions";
 import { PublicPaidPosts } from "@/components/public-paid-posts";
 import CommunityShare from "@/components/community-share";
 import AvatarImage from "@/components/avatar-image";
+import PostMediaImage from "@/components/post-media-image";
 import { getSiteUrl } from "@/lib/site-url";
 
 async function PublicSpace({ slug }: { slug: string }) {
@@ -148,7 +148,7 @@ async function PublicSpace({ slug }: { slug: string }) {
                   <div className="post-publisher-identity"><strong>{tenant.displayName}</strong><small>@{tenant.handle}</small></div>
                 </div>}
                 <p className="post-content"><LinkifiedText>{post.content}</LinkifiedText></p>
-                {post.mediaUrl && post.mediaType === "IMAGE" && <Image className="post-media post-media-image" src={post.mediaUrl} alt="" width={1200} height={900} unoptimized />}
+                {post.mediaUrl && post.mediaType === "IMAGE" && <PostMediaImage src={post.mediaUrl} />}
                 {post.mediaUrl && post.mediaType === "VIDEO" && <video className="post-media post-media-video" src={post.mediaUrl} controls />}
                 <PostActions
                   postId={post.id}
@@ -168,7 +168,7 @@ async function PublicSpace({ slug }: { slug: string }) {
           <div className="post-meta"><span className="post-category"><T id={({ DAILY: "daily", PREMIUM: "premium", MONTANTE: "montante", VIP: "vip", FIXED: "fixed", GROSSE_COTE: "grosseCote", GENERAL: "publication" } as Record<string, string>)[result.post.category] ?? "publication"} /></span><span><CalendarDays size={14} /> <LocalizedDate date={result.createdAt.toISOString()} /></span></div>
           <h3>{result.title || result.post.title || result.post.category}</h3>
           <p className="post-content"><LinkifiedText>{result.content}</LinkifiedText></p>
-          {result.mediaUrl && result.mediaType === "IMAGE" && <Image className="post-media post-media-image" src={result.mediaUrl} alt="" width={1200} height={900} unoptimized />}
+          {result.mediaUrl && result.mediaType === "IMAGE" && <PostMediaImage src={result.mediaUrl} />}
           {result.mediaUrl && result.mediaType === "VIDEO" && <video className="post-media post-media-video" src={result.mediaUrl} controls />}
           <PostActions postId={result.post.id} href={`/${tenant.handle}#result-${result.id}`} initialLikes={0} initialLiked={false} allowLike={false} />
         </article>)}</div>

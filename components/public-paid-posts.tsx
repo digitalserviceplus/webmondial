@@ -1,11 +1,11 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { ArrowRight, LoaderCircle, ShieldCheck } from "lucide-react";
 import { LinkifiedText } from "@/components/linkified-text";
 import { PostActions } from "@/components/post-actions";
+import PostMediaImage from "@/components/post-media-image";
 import { useLanguage } from "@/components/language-switcher";
 import { messagesFor } from "@/lib/i18n";
 
@@ -132,7 +132,7 @@ export function PublicPaidPosts({ tenantHandle }: { tenantHandle: string }) {
           </button>
         </div> : <>
           <p className="post-content"><LinkifiedText>{post.content}</LinkifiedText></p>
-          {post.mediaUrl && post.mediaType === "IMAGE" && <Image className="post-media post-media-image" src={post.mediaUrl} alt="" width={1200} height={900} unoptimized />}
+          {post.mediaUrl && post.mediaType === "IMAGE" && <PostMediaImage src={post.mediaUrl} />}
           {post.mediaUrl && post.mediaType === "VIDEO" && <video className="post-media post-media-video" src={post.mediaUrl} controls preload="metadata" />}
         </>}
         <PostActions postId={post.id} href={`/${tenantHandle}#post-${post.id}`} initialLikes={post._count.likes} initialLiked={post.liked} />
