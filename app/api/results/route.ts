@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { isMediaId, readMediaMetadata } from "@/lib/media-storage";
+import { isMediaId, readMediaMetadata, resolveMediaType } from "@/lib/media-storage";
 import { canPublishContent } from "@/lib/subscriptions";
 
 const resultSchema = z.object({
@@ -58,7 +58,13 @@ export async function GET(request: Request) {
         result: { select: { id: true, title: true, content: true, mediaUrl: true, mediaType: true } },
       },
     });
-    return NextResponse.json({ posts });
+    const resolvedPosts = await Promise.all(posts.map(async (post) => ({
+      ...post,
+      result: post.result
+        ? { ...post.result, mediaType: await resolveMediaType(post.result.mediaUrl, post.result.mediaType) }
+        : null,
+    })));
+    return NextResponse.json({ posts: resolvedPosts });
   }
 
   const results = await prisma.couponResult.findMany({
@@ -78,7 +84,11 @@ export async function GET(request: Request) {
       post: { select: { id: true, title: true, category: true, publishedAt: true } },
     },
   });
-  return NextResponse.json({ results });
+  const resolvedResults = await Promise.all(results.map(async (result) => ({
+    ...result,
+    mediaType: await resolveMediaType(result.mediaUrl, result.mediaType),
+  })));
+  return NextResponse.json({ results: resolvedResults });
 }
 
 export async function POST(request: Request) {

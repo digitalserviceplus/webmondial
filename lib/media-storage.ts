@@ -24,9 +24,43 @@ const metadataSchema = z.object({
 });
 
 export type MediaMetadata = z.infer<typeof metadataSchema>;
+export type MediaType = MediaMetadata["mediaType"];
 
 export function isMediaId(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+export function mediaTypeFromUrl(value: string): MediaType | null {
+  let pathname: string;
+  try {
+    pathname = new URL(value, "https://media.invalid").pathname.toLowerCase();
+  } catch {
+    return null;
+  }
+  if (/\.(jpe?g|png|gif|webp)$/.test(pathname)) return "IMAGE";
+  if (/\.(mp4|webm)$/.test(pathname)) return "VIDEO";
+  return null;
+}
+
+export async function resolveMediaType(
+  mediaUrl: string | null,
+  mediaType: MediaType | null,
+): Promise<MediaType | null> {
+  if (!mediaUrl) return null;
+  if (mediaType) return mediaType;
+
+  let pathname: string;
+  try {
+    pathname = new URL(mediaUrl, "https://media.invalid").pathname;
+  } catch {
+    return mediaTypeFromUrl(mediaUrl);
+  }
+  const localMediaId = /^\/api\/media\/([^/]+)$/.exec(pathname)?.[1];
+  if (localMediaId && isMediaId(localMediaId)) {
+    return (await readMediaMetadata(localMediaId))?.mediaType ?? null;
+  }
+
+  return mediaTypeFromUrl(mediaUrl);
 }
 
 function uploadDirectory() {

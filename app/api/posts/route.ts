@@ -3,7 +3,7 @@ import { z } from "zod";
 import { Prisma } from "@/generated/prisma/client";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { isMediaId, readMediaMetadata } from "@/lib/media-storage";
+import { isMediaId, mediaTypeFromUrl, readMediaMetadata, resolveMediaType } from "@/lib/media-storage";
 import { rateLimit, requestKey } from "@/lib/rate-limit";
 import { annualSubscriptionCutoff, canPublishContent, canPublishPaidContent } from "@/lib/subscriptions";
 
@@ -22,18 +22,6 @@ const postSchema = z.object({
 
 function preview(content: string) {
   return content.length > 220 ? `${content.slice(0, 220).trimEnd()}…` : content;
-}
-
-function mediaTypeFromUrl(value: string): "IMAGE" | "VIDEO" | undefined {
-  let pathname: string;
-  try {
-    pathname = new URL(value).pathname.toLowerCase();
-  } catch {
-    return undefined;
-  }
-  if (/\.(jpe?g|png|gif|webp)$/.test(pathname)) return "IMAGE";
-  if (/\.(mp4|webm)$/.test(pathname)) return "VIDEO";
-  return undefined;
 }
 
 export async function GET(request: Request) {
@@ -131,11 +119,12 @@ export async function GET(request: Request) {
         (post.visibility === "PAID" && Boolean(post.purchases?.length));
       const isOwner = post.authorId === session?.user.id;
       const locked = post.visibility === "PAID" && !canView && !isOwner;
+      const mediaType = locked ? null : await resolveMediaType(post.mediaUrl, post.mediaType);
       return {
         ...post,
         content: locked ? preview(post.content) : post.content,
         mediaUrl: locked ? null : post.mediaUrl,
-        mediaType: locked ? null : post.mediaType,
+        mediaType,
         locked,
         liked: Boolean(post.likes?.length),
         purchased: Boolean(post.purchases?.length),

@@ -14,6 +14,7 @@ import CommunityShare from "@/components/community-share";
 import AvatarImage from "@/components/avatar-image";
 import PostMediaImage from "@/components/post-media-image";
 import { getSiteUrl } from "@/lib/site-url";
+import { resolveMediaType } from "@/lib/media-storage";
 
 async function PublicSpace({ slug }: { slug: string }) {
   await io();
@@ -67,6 +68,18 @@ async function PublicSpace({ slug }: { slug: string }) {
     if (alias?.tenant.status === "ACTIVE") permanentRedirect(`/${alias.tenant.handle}`);
     notFound();
   }
+  const publicPosts = await Promise.all(
+    tenant.posts.map(async (post) => ({
+      ...post,
+      mediaType: await resolveMediaType(post.mediaUrl, post.mediaType),
+    })),
+  );
+  const publicResults = await Promise.all(
+    tenant.results.map(async (result) => ({
+      ...result,
+      mediaType: await resolveMediaType(result.mediaUrl, result.mediaType),
+    })),
+  );
   const initials = tenant.displayName.trim().split(/\s+/).slice(0, 2).map((word) => word[0]).join("").toUpperCase();
   const avatarUrl = tenant.avatarUrl ?? tenant.owner.avatarUrl;
   const biography = tenant.bio?.trim();
@@ -128,7 +141,7 @@ async function PublicSpace({ slug }: { slug: string }) {
           </div>
         ) : (
           <div className="post-list">
-            {tenant.posts.map((post) => (
+            {publicPosts.map((post) => (
               <article className="post-card" key={post.id}>
                 <div className="post-meta">
                   <span className="post-category"><T id={({
@@ -162,9 +175,9 @@ async function PublicSpace({ slug }: { slug: string }) {
         )}
       </section>
       <PublicPaidPosts tenantHandle={tenant.handle} />
-      {tenant.results.length > 0 && <section className="profile-feed">
+      {publicResults.length > 0 && <section className="profile-feed">
         <div className="feed-heading"><div><span className="section-kicker"><T id="results" /></span><h2><T id="results" /></h2></div></div>
-        <div className="post-list">{tenant.results.map((result) => <article className="post-card" id={`result-${result.id}`} key={result.id}>
+        <div className="post-list">{publicResults.map((result) => <article className="post-card" id={`result-${result.id}`} key={result.id}>
           <div className="post-meta"><span className="post-category"><T id={({ DAILY: "daily", PREMIUM: "premium", MONTANTE: "montante", VIP: "vip", FIXED: "fixed", GROSSE_COTE: "grosseCote", GENERAL: "publication" } as Record<string, string>)[result.post.category] ?? "publication"} /></span><span><CalendarDays size={14} /> <LocalizedDate date={result.createdAt.toISOString()} /></span></div>
           <h3>{result.title || result.post.title || result.post.category}</h3>
           <p className="post-content"><LinkifiedText>{result.content}</LinkifiedText></p>
