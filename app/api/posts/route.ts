@@ -3,7 +3,7 @@ import { z } from "zod";
 import { Prisma } from "@/generated/prisma/client";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { isMediaId, isMediaStored, mediaTypeFromUrl, readMediaMetadata, resolveMediaType } from "@/lib/media-storage";
+import { isMediaId, isMediaStored, readMediaMetadata, resolveMediaType } from "@/lib/media-storage";
 import { rateLimit, requestKey } from "@/lib/rate-limit";
 import { annualSubscriptionCutoff, canPublishContent, canPublishPaidContent } from "@/lib/subscriptions";
 
@@ -231,16 +231,7 @@ export async function POST(request: Request) {
       }
       mediaType = metadata.mediaType;
     } else {
-      let protocol: string;
-      try {
-        protocol = new URL(parsed.data.mediaUrl).protocol;
-      } catch {
-        return NextResponse.json({ error: "Le média doit utiliser une adresse HTTPS ou un fichier téléversé." }, { status: 400 });
-      }
-      if (protocol !== "https:") {
-        return NextResponse.json({ error: "Le média doit utiliser une adresse HTTPS." }, { status: 400 });
-      }
-      mediaType = mediaTypeFromUrl(parsed.data.mediaUrl) ?? mediaType;
+      return NextResponse.json({ error: "Sélectionnez une image ou une vidéo à téléverser depuis votre appareil." }, { status: 400 });
     }
     if (!mediaType) return NextResponse.json({ error: "Le type du média n’a pas pu être détecté." }, { status: 400 });
   }
@@ -334,6 +325,8 @@ export async function PATCH(request: Request) {
       id: true,
       tenantId: true,
       authorId: true,
+      mediaUrl: true,
+      mediaType: true,
       tenant: { select: { ownerId: true, status: true } },
     },
   });
@@ -386,12 +379,10 @@ export async function PATCH(request: Request) {
       }
       mediaType = metadata.mediaType;
     } else {
-      try {
-        if (new URL(parsed.data.mediaUrl).protocol !== "https:") throw new Error("URL");
-      } catch {
-        return NextResponse.json({ error: "Le média doit utiliser une adresse HTTPS ou un téléversement valide." }, { status: 400 });
+      if (parsed.data.mediaUrl !== post.mediaUrl || !post.mediaType) {
+        return NextResponse.json({ error: "Sélectionnez une image ou une vidéo à téléverser depuis votre appareil." }, { status: 400 });
       }
-      mediaType = mediaTypeFromUrl(parsed.data.mediaUrl) ?? mediaType;
+      mediaType = post.mediaType;
     }
     if (!mediaType) return NextResponse.json({ error: "Le type du média n’a pas pu être détecté." }, { status: 400 });
   }

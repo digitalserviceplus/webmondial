@@ -1,6 +1,6 @@
 import { mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { BlobNotFoundError, del, get, head, put } from "@vercel/blob";
+import { del, get, put } from "@vercel/blob";
 import { z } from "zod";
 
 export const MAX_MEDIA_SIZE = 20 * 1024 * 1024;
@@ -157,15 +157,22 @@ export async function isMediaStored(
   contentType: keyof typeof mediaTypes,
 ): Promise<boolean> {
   if (usesVercelBlob()) {
-    try {
-      const blob = await head(mediaBlobPath(id, contentType));
-      return blob.contentType === contentType &&
-        blob.size > 0 &&
-        blob.size <= MAX_MEDIA_SIZE;
-    } catch (error) {
-      if (error instanceof BlobNotFoundError) return false;
-      throw error;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const blob = await get(mediaBlobPath(id, contentType), { access: "private", useCache: false });
+      if (blob?.statusCode === 200) {
+        if (blob.blob.contentType !== contentType) return false;
+        const reader = blob.stream.getReader();
+        try {
+          const firstChunk = await reader.read();
+          return !firstChunk.done && firstChunk.value.byteLength > 0;
+        } finally {
+          await reader.cancel();
+          reader.releaseLock();
+        }
+      }
+      if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 200 * (attempt + 1)));
     }
+    return false;
   }
 
   try {

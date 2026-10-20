@@ -14,9 +14,13 @@ import {
   Flag,
   Heart,
   LoaderCircle,
+  Mail,
+  MessageCircle,
+  Phone,
   Plus,
   RefreshCw,
   Search,
+  Send,
   ShieldCheck,
   Trash2,
 } from "lucide-react";
@@ -48,6 +52,27 @@ type PostItem = {
 };
 
 type ApiResult = { error?: string; [key: string]: unknown };
+type SupportSettings = {
+  supportEmail: string;
+  supportPhone: string;
+  supportWhatsApp: string;
+  supportTelegram: string;
+};
+
+function isSupportSettings(value: unknown): value is SupportSettings {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    "supportEmail" in value &&
+    typeof value.supportEmail === "string" &&
+    "supportPhone" in value &&
+    typeof value.supportPhone === "string" &&
+    "supportWhatsApp" in value &&
+    typeof value.supportWhatsApp === "string" &&
+    "supportTelegram" in value &&
+    typeof value.supportTelegram === "string",
+  );
+}
 
 function readableTextColor(hex: string | null) {
   if (!hex || !/^#[0-9a-f]{6}$/i.test(hex)) return "#ffffff";
@@ -230,8 +255,8 @@ function Feed({ tenantHandle, category, managePosts = false, refreshToken = 0 }:
   async function updatePost(post: PostItem, form: HTMLFormElement) {
     const values = new FormData(form);
     try {
-      let mediaUrl = String(values.get("mediaUrl") ?? "").trim() || undefined;
-      let mediaType = mediaUrl === post.mediaUrl ? post.mediaType ?? undefined : undefined;
+      let mediaUrl = post.mediaUrl ?? undefined;
+      let mediaType = post.mediaType ?? undefined;
       const mediaFile = values.get("mediaFile");
       if (mediaFile instanceof File && mediaFile.size > 0) {
         const uploaded = await uploadMediaFile(mediaFile, "post", labels.mediaUploadError);
@@ -372,7 +397,6 @@ function Feed({ tenantHandle, category, managePosts = false, refreshToken = 0 }:
                   <option value="PAID">{labels.paidVisibility}</option>
                 </select></label>
                 <label>{labels.price} (XOF) <span>({labels.optional})</span><input className="text-field" type="number" min="1" step="1" name="price" defaultValue={post.price ?? ""} /></label>
-                <label>{labels.mediaUrl} <span>({labels.optional})</span><input className="text-field" type="url" name="mediaUrl" defaultValue={post.mediaUrl ?? ""} placeholder="https://…" /></label>
                 <PostMediaFileField currentUrl={post.mediaUrl} currentType={post.mediaType} />
                 <div className="admin-actions"><button className="button button-primary" type="submit">{labels.save}</button><button className="button button-dark" type="button" onClick={() => setEditingPostId(null)}>{labels.cancel}</button></div>
               </form>}
@@ -465,7 +489,6 @@ function PostComposer({
         <label>{labels.postVisibility}<select className="text-field" value={visibility} onChange={(event) => setVisibility(event.target.value)}><option value="TENANT_PLAYERS">{labels.communityVisibility}</option><option value="PUBLIC">{labels.publicVisibility}</option><option value="PRIVATE">{labels.privateVisibility}</option><option value="PAID" disabled={!canPublishPaid}>{labels.paidVisibility}{canPublishPaid ? "" : ` (${labels.annualSubscriptionRequired})`}</option></select></label>
         {!canPublishPaid && <p className="form-legal">{labels.postAnnualRequired}</p>}
         {visibility === "PAID" && <label>{labels.price} (XOF)<input className="text-field" type="number" min="1" step="1" name="price" required /></label>}
-        <label>{labels.mediaUrl} <span>({labels.optional})</span><input className="text-field" type="url" name="mediaUrl" placeholder="https://…" /></label>
         <PostMediaFileField key={mediaFieldVersion} />
         <p className="form-legal">{labels.mediaUploadDetails}</p>
         <button className="button button-lime" type="submit" disabled={busy}>{busy ? <LoaderCircle className="spin" size={16} /> : <Plus size={16} />} {uploadProgress === null ? labels.publishPost : labels.uploadingMedia.replace("{progress}", String(uploadProgress))}</button>
@@ -754,7 +777,7 @@ function ResultsManager({ tenantHandle }: { tenantHandle: string }) {
     setMessage("");
     try {
       let mediaUrl = String(form.get("mediaUrl") ?? "").trim();
-      let mediaType = String(form.get("mediaType") ?? "") || undefined;
+      let mediaType: "IMAGE" | "VIDEO" | undefined;
       const mediaFile = form.get("mediaFile");
       if (mediaFile instanceof File && mediaFile.size > 0) {
         const uploaded = await uploadMediaFile(mediaFile, "post", labels.resultUploadError);
@@ -789,11 +812,8 @@ function ResultsManager({ tenantHandle }: { tenantHandle: string }) {
         </select></label>
         <label>{labels.resultTitle}<input className="text-field" name="title" maxLength={180} key={`${selectedPost?.id ?? "no-post"}-title`} defaultValue={selectedPost?.result?.title ?? ""} /></label>
         <label>{labels.resultContent}<textarea className="text-field text-area" name="content" required maxLength={20000} rows={5} key={selectedPost?.id ?? "no-post"} defaultValue={selectedPost?.result?.content ?? ""} /></label>
-        <div className="form-row">
-          <label>{labels.resultMedia}<input className="text-field" name="mediaUrl" type="url" placeholder="https://…" key={`${selectedPost?.id ?? "no-post"}-media`} defaultValue={selectedPost?.result?.mediaUrl ?? ""} /></label>
-          <label>{labels.postMediaType}<select className="text-field" name="mediaType" key={`${selectedPost?.id ?? "no-post"}-type`} defaultValue={selectedPost?.result?.mediaType ?? ""}><option value="">{labels.noMedia}</option><option value="IMAGE">{labels.image}</option><option value="VIDEO">{labels.video}</option></select></label>
-        </div>
-        <label>{labels.uploadMedia}<input className="text-field" name="mediaFile" type="file" accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/webm" /></label>
+        <input type="hidden" name="mediaUrl" value={selectedPost?.result?.mediaUrl?.startsWith("/api/media/") ? selectedPost.result.mediaUrl : ""} />
+        <PostMediaFileField currentUrl={selectedPost?.result?.mediaUrl} currentType={selectedPost?.result?.mediaType} />
         <Message value={message} onClose={() => setMessage("")} />
         <button className="button button-lime" type="submit" disabled={busy}>{busy ? <LoaderCircle className="spin" size={16} /> : <Plus size={16} />} {labels.saveResult}</button>
       </form>
@@ -987,6 +1007,52 @@ function GlobalSettings() {
   }
   if (!initial) return <p className="panel-description">{labels.globalLoading}</p>;
   return <section className="tool-section"><h2>{labels.adminSettingsTitle}</h2><p className="panel-description">{labels.adminSettingsSecrets}</p><Message value={message} onClose={() => setMessage("")} /><form className="panel-form" onSubmit={submit}><h3>{labels.partnerSubscriptions}</h3><div className="form-row"><label>{labels.monthlyRate}<input className="text-field" name="monthlyPrice" type="number" min="0" defaultValue={initial.monthlyPrice} required /></label><label>{labels.currencyLabel}<input className="text-field" name="currency" defaultValue={initial.currency} pattern="[A-Z]{3}" required /></label></div><label>{labels.trialDaysLabel}<input className="text-field" name="trialDays" type="number" min="0" max="30" defaultValue={initial.trialDays} required /></label><h3>{labels.assistance}</h3><label>{labels.email}<input className="text-field" name="supportEmail" type="email" defaultValue={initial.support.supportEmail ?? ""} /></label><label>{labels.phone}<input className="text-field" name="supportPhone" defaultValue={initial.support.supportPhone ?? ""} /></label><label>WhatsApp<input className="text-field" name="supportWhatsApp" defaultValue={initial.support.supportWhatsApp ?? ""} /></label><label>Telegram<input className="text-field" name="supportTelegram" defaultValue={initial.support.supportTelegram ?? ""} /></label><h3>{labels.partnerContract}</h3><label>{labels.contractText}<textarea className="text-field text-area" name="partnerContract" rows={8} defaultValue={initial.contract} required minLength={20} /></label><button className="button button-lime">{labels.saveSettings}</button></form></section>;
+}
+
+function SupportPanel() {
+  const labels = messagesFor(useLanguage());
+  const [support, setSupport] = useState<Record<string, string> | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void sendJson("/api/support", "GET")
+        .then((result) => {
+          if (!isSupportSettings(result.support)) throw new Error(labels.loadingGeneric);
+          setSupport(result.support);
+        })
+        .catch((cause) => setError(cause instanceof Error ? cause.message : labels.loadingGeneric));
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [labels.loadingGeneric]);
+
+  if (error) return <section className="tool-section"><h2>{labels.assistance}</h2><Message value={error} onClose={() => setError("")} /></section>;
+  if (!support) return <section className="tool-section"><h2>{labels.assistance}</h2><p className="panel-description">{labels.globalLoading}</p></section>;
+
+  const contacts = [
+    { label: labels.email, value: support.supportEmail, href: support.supportEmail ? `mailto:${support.supportEmail}` : "", icon: Mail },
+    { label: labels.phone, value: support.supportPhone, href: support.supportPhone ? `tel:${support.supportPhone}` : "", icon: Phone },
+    { label: labels.whatsApp, value: support.supportWhatsApp, href: support.supportWhatsApp.replace(/\D/g, "") ? `https://wa.me/${support.supportWhatsApp.replace(/\D/g, "")}` : "", icon: MessageCircle },
+    { label: labels.telegram, value: support.supportTelegram, href: support.supportTelegram
+      ? /^https:\/\/t\.me\//i.test(support.supportTelegram)
+        ? support.supportTelegram
+        : `https://t.me/${encodeURIComponent(support.supportTelegram.replace(/^@/, ""))}`
+      : "", icon: Send },
+  ].filter((contact) => contact.value);
+
+  return (
+    <section className="tool-section">
+      <h2>{labels.assistance}</h2>
+      <p className="panel-description">{labels.supportHelp}</p>
+      {contacts.length > 0
+        ? <div className="support-contacts">{contacts.map(({ label, value, href, icon: Icon }) => (
+          <a className="support-contact" href={href || undefined} key={label} target={label === labels.telegram || label === labels.whatsApp ? "_blank" : undefined} rel={label === labels.telegram || label === labels.whatsApp ? "noreferrer" : undefined}>
+            <Icon size={17} /><span><small>{label}</small><strong>{value}</strong></span>
+          </a>
+        ))}</div>
+        : <p className="panel-description">{labels.supportNotConfigured}</p>}
+    </section>
+  );
 }
 
 function SettingsPanel() {
@@ -1274,7 +1340,7 @@ export default function DashboardTools({
   }
   if (tab === "settings") return <SettingsPanel />;
   if (role === "ADMIN" && tab === "subscription") return <SubscriptionPanel subscription={subscription} />;
-  if (role === "ADMIN" && tab === "support") return <section className="tool-section"><h2>{labels.assistance}</h2><p className="panel-description">{labels.supportHelp}</p></section>;
+  if (role === "ADMIN" && tab === "support") return <SupportPanel />;
   if (role === "PLAYER" && tab === "bookmakers") return <BookmakerManager canManage={false} />;
   if (role === "PLAYER" && tab === "partner") return <PartnerApplication />;
   if (role === "PLAYER" && tenantHandle && tab === "results") return <ResultsFeed tenantHandle={tenantHandle} />;

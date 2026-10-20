@@ -10,7 +10,6 @@ const resultSchema = z.object({
   title: z.string().trim().max(180).optional(),
   content: z.string().trim().min(1).max(20_000),
   mediaUrl: z.string().trim().max(2048).optional(),
-  mediaType: z.enum(["IMAGE", "VIDEO"]).optional(),
 });
 
 function utcDayBounds() {
@@ -132,24 +131,21 @@ export async function POST(request: Request) {
   });
   if (!post) return NextResponse.json({ error: "Choisissez un coupon publié aujourd’hui dans votre espace." }, { status: 404 });
 
-  if (parsed.data.mediaUrl) {
-    const localMediaId = /^\/api\/media\/([^/]+)$/.exec(parsed.data.mediaUrl)?.[1];
-    if (localMediaId && isMediaId(localMediaId)) {
-      const metadata = await readMediaMetadata(localMediaId);
-      if (!metadata || metadata.purpose !== "post" || metadata.ownerId !== session.user.id || metadata.tenantId !== tenant.id || metadata.mediaType !== parsed.data.mediaType) {
-        return NextResponse.json({ error: "Le média ne correspond pas à cet espace ou à ce type." }, { status: 403 });
-      }
-      if (!(await isMediaStored(localMediaId, metadata.contentType))) {
-        return NextResponse.json({ error: "Le téléversement de l’image ou de la vidéo n’est pas terminé. Réessayez avant d’enregistrer." }, { status: 400 });
-      }
-    } else {
-      try {
-        if (new URL(parsed.data.mediaUrl).protocol !== "https:") throw new Error("URL");
-      } catch {
-        return NextResponse.json({ error: "Le média doit utiliser une adresse HTTPS ou provenir d’un téléversement valide." }, { status: 400 });
-      }
+  const mediaUrl = parsed.data.mediaUrl || null;
+  let mediaType: "IMAGE" | "VIDEO" | null = null;
+  if (mediaUrl) {
+    const localMediaId = /^\/api\/media\/([^/]+)$/.exec(mediaUrl)?.[1];
+    if (!localMediaId || !isMediaId(localMediaId)) {
+      return NextResponse.json({ error: "Sélectionnez une image ou une vidéo à téléverser depuis votre appareil." }, { status: 400 });
     }
-    if (!parsed.data.mediaType) return NextResponse.json({ error: "Précisez le type du média." }, { status: 400 });
+    const metadata = await readMediaMetadata(localMediaId);
+    if (!metadata || metadata.purpose !== "post" || metadata.ownerId !== session.user.id || metadata.tenantId !== tenant.id) {
+      return NextResponse.json({ error: "Le média ne correspond pas à cet espace." }, { status: 403 });
+    }
+    if (!(await isMediaStored(localMediaId, metadata.contentType))) {
+      return NextResponse.json({ error: "Le téléversement de l’image ou de la vidéo n’est pas terminé. Réessayez avant d’enregistrer." }, { status: 400 });
+    }
+    mediaType = metadata.mediaType;
   }
 
   const result = await prisma.couponResult.upsert({
@@ -159,14 +155,14 @@ export async function POST(request: Request) {
       postId: post.id,
       title: parsed.data.title,
       content: parsed.data.content,
-      mediaUrl: parsed.data.mediaUrl,
-      mediaType: parsed.data.mediaUrl ? parsed.data.mediaType : null,
+      mediaUrl,
+      mediaType,
     },
     update: {
       title: parsed.data.title,
       content: parsed.data.content,
-      mediaUrl: parsed.data.mediaUrl,
-      mediaType: parsed.data.mediaUrl ? parsed.data.mediaType : null,
+      mediaUrl,
+      mediaType,
     },
   });
   return NextResponse.json({ ok: true, result });

@@ -351,6 +351,11 @@ main:has(> .site-header:not(.dashboard-header)) { padding-top: 78px; }
 .post-media { display: block; width: 100%; margin: 13px 0; border-radius: 10px; background: #e8edf3; }
 .post-media-image { width: 100%; max-width: 100%; min-width: 1px; height: auto; min-height: 1px; aspect-ratio: auto; margin-inline: auto; object-fit: contain; }
 .post-media-video { max-height: 520px; aspect-ratio: 16 / 9; object-fit: contain; }
+.support-contacts { display: grid; gap: 10px; margin-top: 18px; }
+.support-contact { display: flex; align-items: center; gap: 12px; padding: 13px 15px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink); text-decoration: none; }
+.support-contact > span { display: grid; gap: 3px; min-width: 0; }
+.support-contact small { color: var(--muted); font-size: 11px; }
+.support-contact strong { overflow-wrap: anywhere; font-size: 13px; }
 .locked-content { display: grid; justify-items: center; gap: 11px; margin: 18px 0 6px; padding: 23px; border: 1px solid #dce6f2; border-radius: 14px; background: linear-gradient(145deg, #f7faff, #edf4fc); text-align: center; }
 .locked-content-icon { display: grid; width: 44px; height: 44px; place-items: center; border-radius: 14px; background: #e1edfb; color: #2868b8; }
 .locked-content-label { color: #356eb6; font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
