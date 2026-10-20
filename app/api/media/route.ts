@@ -63,7 +63,9 @@ async function handleDirectUpload(request: Request) {
           ownerId: session.user.id,
           purpose: payload.purpose,
           contentType: payload.contentType,
+          mediaType: mediaTypes[payload.contentType].mediaType,
         };
+        await saveMediaMetadata(metadata);
         return {
           allowedContentTypes: [payload.contentType],
           maximumSizeInBytes: MAX_MEDIA_SIZE,

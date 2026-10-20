@@ -20,7 +20,7 @@ const metadataSchema = z.object({
   purpose: z.enum(["post", "avatar"]),
   contentType: z.enum(Object.keys(mediaTypes) as [keyof typeof mediaTypes, ...(keyof typeof mediaTypes)[]]),
   mediaType: z.enum(["IMAGE", "VIDEO"]),
-  size: z.number().int().positive().max(MAX_MEDIA_SIZE),
+  size: z.number().int().positive().max(MAX_MEDIA_SIZE).optional(),
 });
 
 export type MediaMetadata = z.infer<typeof metadataSchema>;
@@ -113,6 +113,7 @@ export async function saveMediaMetadata(metadata: MediaMetadata) {
   await put(metadataBlobPath(metadata.id), JSON.stringify(metadata), {
     access: "private",
     addRandomSuffix: false,
+    allowOverwrite: true,
     contentType: "application/json",
   });
 }
