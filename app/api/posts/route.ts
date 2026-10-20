@@ -5,7 +5,6 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { isMediaId, readMediaMetadata } from "@/lib/media-storage";
 import { rateLimit, requestKey } from "@/lib/rate-limit";
-import { canViewTenantPost } from "@/lib/tenant-access";
 import { annualSubscriptionCutoff, canPublishContent, canPublishPaidContent } from "@/lib/subscriptions";
 
 const categories = ["DAILY", "PREMIUM", "MONTANTE", "VIP", "FIXED", "GROSSE_COTE", "GENERAL"] as const;
@@ -125,13 +124,11 @@ export async function GET(request: Request) {
   const page = posts.slice(0, pageSize);
   const responsePosts = await Promise.all(
     page.map(async (post) => {
-      const canView = await canViewTenantPost({
-        userId: session?.user.id,
-        role: session?.user.role,
-        tenantId: tenant.id,
-        postId: post.id,
-        visibility: post.visibility,
-      });
+      const canView =
+        isOwnerOrSuperAdmin ||
+        post.visibility === "PUBLIC" ||
+        (isMember && post.visibility === "TENANT_PLAYERS") ||
+        (post.visibility === "PAID" && Boolean(post.purchases?.length));
       const isOwner = post.authorId === session?.user.id;
       const locked = post.visibility === "PAID" && !canView && !isOwner;
       return {

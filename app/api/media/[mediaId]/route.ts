@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { canViewTenantPost } from "@/lib/tenant-access";
 import { isMediaId, readMediaBytes, readMediaMetadata } from "@/lib/media-storage";
 
 export async function GET(
@@ -49,37 +48,74 @@ export async function GET(
     return mediaResponse(bytes, metadata.contentType);
   }
 
-  const posts = await prisma.post.findMany({
-    where: {
-      mediaUrl,
-      published: true,
-      status: "ACTIVE",
-      tenant: { status: "ACTIVE" },
-    },
-    select: { id: true, tenantId: true, visibility: true },
-  });
-  const results = await prisma.couponResult.findMany({
-    where: {
-      mediaUrl,
-      post: { published: true, status: "ACTIVE", tenant: { status: "ACTIVE" } },
-    },
-    select: { post: { select: { id: true, tenantId: true, visibility: true } } },
-  });
+  const [posts, results] = await Promise.all([
+    prisma.post.findMany({
+      where: {
+        mediaUrl,
+        published: true,
+        status: "ACTIVE",
+        tenant: { status: "ACTIVE" },
+      },
+      select: {
+        id: true,
+        tenantId: true,
+        visibility: true,
+        tenant: { select: { ownerId: true } },
+      },
+    }),
+    prisma.couponResult.findMany({
+      where: {
+        mediaUrl,
+        post: { published: true, status: "ACTIVE", tenant: { status: "ACTIVE" } },
+      },
+      select: {
+        post: {
+          select: {
+            id: true,
+            tenantId: true,
+            visibility: true,
+            tenant: { select: { ownerId: true } },
+          },
+        },
+      },
+    }),
+  ]);
 
-  let authorized = false;
   const relatedPosts = [...posts, ...results.map(({ post }) => post)];
-  for (const post of relatedPosts) {
-    if (authorized) break;
-    if (await canViewTenantPost({
-      userId: session?.user.id,
-      role: session?.user.role,
-      tenantId: post.tenantId,
-      postId: post.id,
-      visibility: post.visibility,
-    })) {
-      authorized = true;
-      break;
-    }
+  let authorized = session?.user.role === "SUPER_ADMIN" || relatedPosts.some((post) =>
+    session?.user.role === "ADMIN" &&
+    session.user.id === post.tenant.ownerId
+  ) || relatedPosts.some((post) => post.visibility === "PUBLIC");
+
+  if (!authorized && session?.user.id) {
+    const playerPosts = relatedPosts.filter((post) => post.visibility === "TENANT_PLAYERS");
+    const paidPosts = relatedPosts.filter((post) => post.visibility === "PAID");
+    const [memberships, purchases] = await Promise.all([
+      playerPosts.length > 0
+        ? prisma.tenantMembership.findMany({
+            where: {
+              userId: session.user.id,
+              tenantId: { in: [...new Set(playerPosts.map((post) => post.tenantId))] },
+            },
+            select: { tenantId: true },
+          })
+        : Promise.resolve([]),
+      paidPosts.length > 0
+        ? prisma.publicationPurchase.findMany({
+            where: {
+              userId: session.user.id,
+              postId: { in: paidPosts.map((post) => post.id) },
+            },
+            select: { postId: true },
+          })
+        : Promise.resolve([]),
+    ]);
+    const memberTenantIds = new Set(memberships.map(({ tenantId }) => tenantId));
+    const purchasedPostIds = new Set(purchases.map(({ postId }) => postId));
+    authorized = relatedPosts.some((post) =>
+      (post.visibility === "TENANT_PLAYERS" && memberTenantIds.has(post.tenantId)) ||
+      (post.visibility === "PAID" && purchasedPostIds.has(post.id))
+    );
   }
 
   if (posts.length === 0 && results.length === 0 && session?.user && metadata.tenantId) {
