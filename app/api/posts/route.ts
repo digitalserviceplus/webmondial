@@ -3,7 +3,7 @@ import { z } from "zod";
 import { Prisma } from "@/generated/prisma/client";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { isMediaId, mediaTypeFromUrl, readMediaMetadata, resolveMediaType } from "@/lib/media-storage";
+import { isMediaId, isMediaStored, mediaTypeFromUrl, readMediaMetadata, resolveMediaType } from "@/lib/media-storage";
 import { rateLimit, requestKey } from "@/lib/rate-limit";
 import { annualSubscriptionCutoff, canPublishContent, canPublishPaidContent } from "@/lib/subscriptions";
 
@@ -226,6 +226,9 @@ export async function POST(request: Request) {
       ) {
         return NextResponse.json({ error: "Le média est introuvable ou ne peut pas être utilisé dans une publication." }, { status: 400 });
       }
+      if (!(await isMediaStored(localMediaId, metadata.contentType))) {
+        return NextResponse.json({ error: "Le téléversement de l’image ou de la vidéo n’est pas terminé. Réessayez avant de publier." }, { status: 400 });
+      }
       mediaType = metadata.mediaType;
     } else {
       let protocol: string;
@@ -381,6 +384,9 @@ export async function PATCH(request: Request) {
       const metadata = await readMediaMetadata(localMediaId);
       if (!metadata || metadata.purpose !== "post") {
         return NextResponse.json({ error: "Le média est introuvable ou ne peut pas être utilisé dans une publication." }, { status: 400 });
+      }
+      if (!(await isMediaStored(localMediaId, metadata.contentType))) {
+        return NextResponse.json({ error: "Le téléversement de l’image ou de la vidéo n’est pas terminé. Réessayez avant d’enregistrer." }, { status: 400 });
       }
       mediaType = metadata.mediaType;
     } else {

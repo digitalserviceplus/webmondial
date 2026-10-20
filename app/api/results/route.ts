@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { isMediaId, readMediaMetadata, resolveMediaType } from "@/lib/media-storage";
+import { isMediaId, isMediaStored, readMediaMetadata, resolveMediaType } from "@/lib/media-storage";
 import { canPublishContent } from "@/lib/subscriptions";
 
 const resultSchema = z.object({
@@ -138,6 +138,9 @@ export async function POST(request: Request) {
       const metadata = await readMediaMetadata(localMediaId);
       if (!metadata || metadata.purpose !== "post" || metadata.ownerId !== session.user.id || metadata.tenantId !== tenant.id || metadata.mediaType !== parsed.data.mediaType) {
         return NextResponse.json({ error: "Le média ne correspond pas à cet espace ou à ce type." }, { status: 403 });
+      }
+      if (!(await isMediaStored(localMediaId, metadata.contentType))) {
+        return NextResponse.json({ error: "Le téléversement de l’image ou de la vidéo n’est pas terminé. Réessayez avant d’enregistrer." }, { status: 400 });
       }
     } else {
       try {

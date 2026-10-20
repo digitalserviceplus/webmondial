@@ -1,6 +1,6 @@
-import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { del, get, put } from "@vercel/blob";
+import { BlobNotFoundError, del, get, head, put } from "@vercel/blob";
 import { z } from "zod";
 
 export const MAX_MEDIA_SIZE = 20 * 1024 * 1024;
@@ -152,9 +152,34 @@ export async function saveMediaMetadata(metadata: MediaMetadata) {
   });
 }
 
+export async function isMediaStored(
+  id: string,
+  contentType: keyof typeof mediaTypes,
+): Promise<boolean> {
+  if (usesVercelBlob()) {
+    try {
+      const blob = await head(mediaBlobPath(id, contentType));
+      return blob.contentType === contentType &&
+        blob.size > 0 &&
+        blob.size <= MAX_MEDIA_SIZE;
+    } catch (error) {
+      if (error instanceof BlobNotFoundError) return false;
+      throw error;
+    }
+  }
+
+  try {
+    const file = await stat(mediaFilePath(id, contentType));
+    return file.isFile() && file.size > 0 && file.size <= MAX_MEDIA_SIZE;
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return false;
+    throw error;
+  }
+}
+
 export async function readMediaMetadata(id: string): Promise<MediaMetadata | null> {
   if (usesVercelBlob()) {
-    const blob = await get(metadataBlobPath(id), { access: "private" });
+    const blob = await get(metadataBlobPath(id), { access: "private", useCache: false });
     if (!blob || blob.statusCode !== 200) return null;
     const raw = await new Response(blob.stream).text();
     return metadataSchema.parse(JSON.parse(raw));
@@ -174,7 +199,7 @@ export async function readMediaBytes(
   contentType: keyof typeof mediaTypes,
 ): Promise<Uint8Array | null> {
   if (usesVercelBlob()) {
-    const blob = await get(mediaBlobPath(id, contentType), { access: "private" });
+    const blob = await get(mediaBlobPath(id, contentType), { access: "private", useCache: false });
     if (!blob || blob.statusCode !== 200) return null;
     return new Uint8Array(await new Response(blob.stream).arrayBuffer());
   }

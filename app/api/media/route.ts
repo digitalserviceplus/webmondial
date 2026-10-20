@@ -88,7 +88,7 @@ async function handleDirectUpload(request: Request) {
           throw new Error("Le média téléversé ne correspond pas à son type déclaré.");
         }
 
-        const stored = await get(blob.pathname, { access: "private" });
+        const stored = await get(blob.pathname, { access: "private", useCache: false });
         if (!stored || stored.statusCode !== 200) throw new Error("Impossible de vérifier le média téléversé.");
         const bytes = new Uint8Array(await new Response(stored.stream).arrayBuffer());
         if (bytes.byteLength > MAX_MEDIA_SIZE || detectMediaType(bytes) !== metadata.contentType) {
