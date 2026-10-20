@@ -127,6 +127,19 @@ async function uploadMediaFile(
       onUploadProgress: ({ percentage }) => onProgress?.(Math.round(percentage)),
     });
     if (blob.pathname !== pathname) throw new Error(labels.mediaUnexpected);
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const completion = await fetch("/api/media/complete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, purpose, contentType: file.type }),
+      });
+      const completionResult = await completion.json().catch(() => ({})) as ApiResult;
+      if (completion.ok) break;
+      if (completion.status !== 409 || attempt === 3) {
+        throw new Error(completionResult.error ?? errorMessage);
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 300 * (attempt + 1)));
+    }
     return { url: `/api/media/${id}`, mediaType: supportedType.mediaType };
   }
 

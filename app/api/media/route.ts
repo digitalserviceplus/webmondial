@@ -1,11 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
-import { del, get } from "@vercel/blob";
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { MAX_MEDIA_SIZE, detectMediaType, mediaTypes, saveMedia, saveMediaMetadata, type MediaMetadata } from "@/lib/media-storage";
+import { detectMediaType, MAX_MEDIA_SIZE, mediaTypes, saveMedia, saveMediaMetadata } from "@/lib/media-storage";
 import { rateLimit, requestKey } from "@/lib/rate-limit";
 
 const uploadRequestSchema = z.object({
@@ -13,14 +12,6 @@ const uploadRequestSchema = z.object({
   purpose: z.enum(["post", "avatar"]),
   contentType: z.enum(Object.keys(mediaTypes) as [keyof typeof mediaTypes, ...(keyof typeof mediaTypes)[]]),
 });
-const uploadMetadataSchema = z.object({
-  id: z.string().uuid(),
-  tenantId: z.string().min(1).nullable(),
-  ownerId: z.string().min(1),
-  purpose: z.enum(["post", "avatar"]),
-  contentType: z.enum(Object.keys(mediaTypes) as [keyof typeof mediaTypes, ...(keyof typeof mediaTypes)[]]),
-});
-
 async function handleDirectUpload(request: Request) {
   const body = await request.json().catch(() => null) as HandleUploadBody | null;
   if (!body) return NextResponse.json({ error: "La requête de téléversement est invalide." }, { status: 400 });
@@ -57,49 +48,20 @@ async function handleDirectUpload(request: Request) {
           tenantId = tenant.id;
         }
 
-        const metadata = {
+        await saveMediaMetadata({
           id: payload.id,
           tenantId,
           ownerId: session.user.id,
           purpose: payload.purpose,
           contentType: payload.contentType,
           mediaType: mediaTypes[payload.contentType].mediaType,
-        };
-        await saveMediaMetadata(metadata);
+        });
         return {
           allowedContentTypes: [payload.contentType],
           maximumSizeInBytes: MAX_MEDIA_SIZE,
           addRandomSuffix: false,
           allowOverwrite: false,
-          tokenPayload: JSON.stringify(metadata),
         };
-      },
-      onUploadCompleted: async ({ blob, tokenPayload }) => {
-        let metadata: z.infer<typeof uploadMetadataSchema>;
-        try {
-          metadata = uploadMetadataSchema.parse(JSON.parse(tokenPayload ?? ""));
-        } catch {
-          await del(blob.pathname);
-          throw new Error("Les métadonnées du média téléversé sont invalides.");
-        }
-        const expectedPath = `media/${metadata.id}.${mediaTypes[metadata.contentType].extension}`;
-        if (blob.pathname !== expectedPath || blob.contentType !== metadata.contentType) {
-          await del(blob.pathname);
-          throw new Error("Le média téléversé ne correspond pas à son type déclaré.");
-        }
-
-        const stored = await get(blob.pathname, { access: "private", useCache: false });
-        if (!stored || stored.statusCode !== 200) throw new Error("Impossible de vérifier le média téléversé.");
-        const bytes = new Uint8Array(await new Response(stored.stream).arrayBuffer());
-        if (bytes.byteLength > MAX_MEDIA_SIZE || detectMediaType(bytes) !== metadata.contentType) {
-          await del(blob.pathname);
-          throw new Error("Le contenu réel du média ne correspond pas à son type déclaré.");
-        }
-        await saveMediaMetadata({
-          ...metadata,
-          mediaType: mediaTypes[metadata.contentType].mediaType,
-          size: bytes.byteLength,
-        } satisfies MediaMetadata);
       },
     });
     return NextResponse.json(response);

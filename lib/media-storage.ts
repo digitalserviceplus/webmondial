@@ -1,4 +1,4 @@
-import { mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { del, get, put } from "@vercel/blob";
 import { z } from "zod";
@@ -150,38 +150,6 @@ export async function saveMediaMetadata(metadata: MediaMetadata) {
     allowOverwrite: true,
     contentType: "application/json",
   });
-}
-
-export async function isMediaStored(
-  id: string,
-  contentType: keyof typeof mediaTypes,
-): Promise<boolean> {
-  if (usesVercelBlob()) {
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      const blob = await get(mediaBlobPath(id, contentType), { access: "private", useCache: false });
-      if (blob?.statusCode === 200) {
-        if (blob.blob.contentType !== contentType) return false;
-        const reader = blob.stream.getReader();
-        try {
-          const firstChunk = await reader.read();
-          return !firstChunk.done && firstChunk.value.byteLength > 0;
-        } finally {
-          await reader.cancel();
-          reader.releaseLock();
-        }
-      }
-      if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 200 * (attempt + 1)));
-    }
-    return false;
-  }
-
-  try {
-    const file = await stat(mediaFilePath(id, contentType));
-    return file.isFile() && file.size > 0 && file.size <= MAX_MEDIA_SIZE;
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") return false;
-    throw error;
-  }
 }
 
 export async function readMediaMetadata(id: string): Promise<MediaMetadata | null> {
