@@ -3,9 +3,13 @@
 import { useEffect, useState } from "react";
 
 export default function NotificationBadge({ initialCount }: { initialCount: number }) {
-  const [count, setCount] = useState(initialCount);
+  const [refreshedCount, setRefreshedCount] = useState<number | null>(null);
+  const count = refreshedCount ?? initialCount;
 
-  useEffect(() => setCount(initialCount), [initialCount]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setRefreshedCount(null), 0);
+    return () => window.clearTimeout(timer);
+  }, [initialCount]);
 
   useEffect(() => {
     let active = true;
@@ -14,7 +18,7 @@ export default function NotificationBadge({ initialCount }: { initialCount: numb
         const response = await fetch("/api/notifications?unreadCount=1", { cache: "no-store" });
         if (!response.ok) throw new Error(`Notification count request failed (${response.status}).`);
         const result: { unreadCount: number } = await response.json();
-        if (active) setCount(result.unreadCount);
+        if (active) setRefreshedCount(result.unreadCount);
       } catch (error) {
         console.error("Unable to refresh the notification count.", error);
       }

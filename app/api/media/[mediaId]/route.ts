@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { isMediaId, readMediaBytes, readMediaMetadata } from "@/lib/media-storage";
+import { isEffectivelyPaid } from "@/lib/publications";
 
 export async function GET(
   _request: Request,
@@ -60,6 +61,7 @@ export async function GET(
         id: true,
         tenantId: true,
         visibility: true,
+        price: true,
         tenant: { select: { ownerId: true } },
       },
     }),
@@ -74,6 +76,7 @@ export async function GET(
             id: true,
             tenantId: true,
             visibility: true,
+            price: true,
             tenant: { select: { ownerId: true } },
           },
         },
@@ -85,11 +88,14 @@ export async function GET(
   let authorized = session?.user.role === "SUPER_ADMIN" || relatedPosts.some((post) =>
     session?.user.role === "ADMIN" &&
     session.user.id === post.tenant.ownerId
-  ) || relatedPosts.some((post) => post.visibility === "PUBLIC");
+  ) || relatedPosts.some((post) =>
+    post.visibility === "PUBLIC" ||
+    (post.visibility === "PAID" && !isEffectivelyPaid(post.visibility, post.price))
+  );
 
   if (!authorized && session?.user.id) {
     const playerPosts = relatedPosts.filter((post) => post.visibility === "TENANT_PLAYERS");
-    const paidPosts = relatedPosts.filter((post) => post.visibility === "PAID");
+    const paidPosts = relatedPosts.filter((post) => isEffectivelyPaid(post.visibility, post.price));
     const [memberships, purchases] = await Promise.all([
       playerPosts.length > 0
         ? prisma.tenantMembership.findMany({
@@ -105,6 +111,7 @@ export async function GET(
             where: {
               userId: session.user.id,
               postId: { in: paidPosts.map((post) => post.id) },
+              payment: { is: { status: "SUCCEEDED" } },
             },
             select: { postId: true },
           })
@@ -114,7 +121,8 @@ export async function GET(
     const purchasedPostIds = new Set(purchases.map(({ postId }) => postId));
     authorized = relatedPosts.some((post) =>
       (post.visibility === "TENANT_PLAYERS" && memberTenantIds.has(post.tenantId)) ||
-      (post.visibility === "PAID" && purchasedPostIds.has(post.id))
+      (post.visibility === "PAID" && !isEffectivelyPaid(post.visibility, post.price)) ||
+      (isEffectivelyPaid(post.visibility, post.price) && purchasedPostIds.has(post.id))
     );
   }
 

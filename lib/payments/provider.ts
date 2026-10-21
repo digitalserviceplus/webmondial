@@ -22,6 +22,7 @@ export type VerifiedCheckout = {
   status: "PENDING" | "SUCCEEDED" | "FAILED" | "CANCELLED";
   amount?: number;
   currency?: string;
+  providerTransactionId?: string;
 };
 
 export interface PaymentProvider {
@@ -89,7 +90,7 @@ export class SasPayPaymentProvider implements PaymentProvider {
     const payload = await this.request("/checkout-sessions/", {
       method: "POST",
       body: JSON.stringify({
-        amount: `${input.amount}.00`,
+        amount: input.amount.toFixed(2),
         currency: input.currency,
         description: input.description,
         customer_email: input.customerEmail,
@@ -149,18 +150,30 @@ export class SasPayPaymentProvider implements PaymentProvider {
     );
     const transaction = transactionVerificationSchema.safeParse(rawTransaction);
     if (!transaction.success) throw new Error("SasPay a renvoyé une vérification de paiement invalide.");
+    if (transaction.data.id !== checkout.data.transaction_id) {
+      throw new Error("La transaction vérifiée par SasPay ne correspond pas à ce checkout.");
+    }
     if (transaction.data.status === "PENDING") return { status: "PENDING" };
     if (transaction.data.status === "FAILED") return { status: "FAILED" };
     if (transaction.data.status !== "SUCCESS") {
       throw new Error("SasPay a renvoyé un statut de paiement inconnu.");
     }
+    const verifiedAmount = normalizeAmount(transaction.data.requested_amount);
+    if (!verifiedAmount || Number(verifiedAmount) <= 0) {
+      throw new Error("SasPay a renvoyé un montant vérifié invalide.");
+    }
     if (
-      transaction.data.currency !== expected.currency ||
-      normalizeAmount(transaction.data.requested_amount) !== `${expected.amount}.00`
+      transaction.data.currency === expected.currency &&
+      verifiedAmount !== normalizeAmount(expected.amount.toFixed(2))
     ) {
       throw new Error("Le montant ou la devise vérifiés par SasPay ne correspondent pas au paiement.");
     }
-    return { status: "SUCCEEDED", amount: expected.amount, currency: expected.currency };
+    return {
+      status: "SUCCEEDED",
+      amount: Number(verifiedAmount),
+      currency: transaction.data.currency,
+      providerTransactionId: transaction.data.id,
+    };
   }
 
   private async request(path: string, init: RequestInit): Promise<Record<string, unknown>> {

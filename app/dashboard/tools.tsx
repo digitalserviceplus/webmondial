@@ -49,6 +49,14 @@ type PostItem = {
   liked: boolean;
   locked: boolean;
   purchased: boolean;
+  result: {
+    id: string;
+    title: string | null;
+    content: string;
+    mediaUrl: string | null;
+    mediaType: "IMAGE" | "VIDEO" | null;
+    createdAt: string;
+  } | null;
 };
 
 type ApiResult = { error?: string; [key: string]: unknown };
@@ -284,6 +292,7 @@ function Feed({ tenantHandle, category, managePosts = false, refreshToken = 0 }:
         sport: String(values.get("sport") ?? ""),
         visibility: String(values.get("visibility") ?? post.visibility),
         price: values.get("price") ? Number(values.get("price")) : undefined,
+        currency: String(values.get("currency") ?? "XOF"),
         mediaUrl,
         mediaType,
       });
@@ -384,6 +393,13 @@ function Feed({ tenantHandle, category, managePosts = false, refreshToken = 0 }:
               )}
               {!post.locked && post.mediaUrl && post.mediaType === "IMAGE" && <PostMediaImage src={post.mediaUrl} />}
               {!post.locked && post.mediaUrl && post.mediaType === "VIDEO" && <video className="post-media post-media-video" src={post.mediaUrl} controls preload="metadata" />}
+              {post.result && <div className="post-result">
+                <strong>{labels.results}</strong>
+                {post.result.title && <h4>{post.result.title}</h4>}
+                <p className="post-content"><LinkifiedText>{post.result.content}</LinkifiedText></p>
+                {post.result.mediaUrl && post.result.mediaType === "IMAGE" && <PostMediaImage src={post.result.mediaUrl} />}
+                {post.result.mediaUrl && post.result.mediaType === "VIDEO" && <video className="post-media post-media-video" src={post.result.mediaUrl} controls preload="metadata" />}
+              </div>}
               <div className="post-footer">
                 <button type="button" className={`like-button ${post.liked ? "liked" : ""}`} onClick={() => void toggleLike(post)} aria-label={post.liked ? labels.unlike : labels.like}><Heart size={16} /> {post._count.likes}</button>
                 {managePosts && <span>{post._count.views ?? 0} {labels.views}</span>}
@@ -409,7 +425,10 @@ function Feed({ tenantHandle, category, managePosts = false, refreshToken = 0 }:
                   <option value="PRIVATE">{labels.privateVisibility}</option>
                   <option value="PAID">{labels.paidVisibility}</option>
                 </select></label>
-                <label>{labels.price} (XOF) <span>({labels.optional})</span><input className="text-field" type="number" min="1" step="1" name="price" defaultValue={post.price ?? ""} /></label>
+                <div className="form-row">
+                  <label>{labels.price} <span>({labels.optional})</span><input className="text-field" type="number" min="0" step="0.01" name="price" defaultValue={post.price ?? ""} /></label>
+                  <label>{labels.currencyLabel}<input className="text-field" name="currency" defaultValue={post.currency} pattern="([A-Za-z]{3}|FCFA)" maxLength={4} /></label>
+                </div>
                 <PostMediaFileField currentUrl={post.mediaUrl} currentType={post.mediaType} />
                 <div className="admin-actions"><button className="button button-primary" type="submit">{labels.save}</button><button className="button button-dark" type="button" onClick={() => setEditingPostId(null)}>{labels.cancel}</button></div>
               </form>}
@@ -421,6 +440,70 @@ function Feed({ tenantHandle, category, managePosts = false, refreshToken = 0 }:
       {!busy && nextCursor && <button className="button button-dark panel-load-more" type="button" onClick={() => void load(nextCursor)}>{labels.olderPosts} <ArrowRight size={15} /></button>}
     </div>
   );
+}
+
+function PendingManualPayments() {
+  const language = useLanguage();
+  const labels = messagesFor(language);
+  const [payments, setPayments] = useState<Array<{
+    id: string;
+    amount: number | string;
+    currency: string;
+    createdAt: string;
+    postTitle: string | null;
+    user: { name: string };
+    tenant: { displayName: string } | null;
+  }>>([]);
+  const [message, setMessage] = useState("");
+  const [busyId, setBusyId] = useState("");
+  const locale = language === "en" ? "en-GB" : language === "es" ? "es-ES" : "fr-FR";
+  const refresh = useCallback(async () => {
+    try {
+      const result = await sendJson("/api/payments", "GET") as {
+        payments: typeof payments;
+      };
+      setPayments(result.payments);
+      setMessage("");
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : labels.manualPaymentLoadError);
+    }
+  }, [labels.manualPaymentLoadError]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void refresh(); }, 0);
+    return () => window.clearTimeout(timer);
+  }, [refresh]);
+
+  async function confirmPayment(id: string) {
+    setBusyId(id);
+    try {
+      await sendJson(`/api/payments/${id}/manual-confirm`, "POST", {});
+      await refresh();
+      setMessage(labels.manualPaymentConfirmed);
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : labels.saveGeneric);
+    } finally {
+      setBusyId("");
+    }
+  }
+
+  if (payments.length === 0 && !message) return null;
+  return <section className="tool-section manual-payment-queue">
+    <h2>{labels.manualPaymentsTitle}</h2>
+    <Message value={message} onClose={() => setMessage("")} />
+    <div className="admin-list">{payments.map((payment) => <article className="admin-card" key={payment.id}>
+      <div>
+        <strong>{payment.postTitle || labels.paidPostBadge}</strong>
+        <p>{payment.user.name}{payment.tenant ? ` · ${payment.tenant.displayName}` : ""}</p>
+        <small>{new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(Number(payment.amount))} {payment.currency} · {new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(new Date(payment.createdAt))}</small>
+        <p className="panel-description">{labels.manualPaymentWait}</p>
+      </div>
+      <button className="button button-lime button-small" type="button" onClick={() => void confirmPayment(payment.id)} disabled={busyId !== ""}>
+        {busyId === payment.id ? <LoaderCircle className="spin" size={15} /> : <Check size={15} />}
+        {labels.manualPaymentConfirm}
+      </button>
+    </article>)}</div>
+  </section>;
 }
 
 function PostComposer({
@@ -447,6 +530,7 @@ function PostComposer({
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
     const price = form.get("price") ? Number(form.get("price")) : undefined;
+    const currency = String(form.get("currency") || "XOF");
     try {
       const mediaFile = form.get("mediaFile");
       let mediaUrl = String(form.get("mediaUrl") ?? "") || undefined;
@@ -464,6 +548,7 @@ function PostComposer({
         sport: String(form.get("sport") ?? ""),
         visibility,
         price,
+        currency,
         mediaUrl,
         mediaType,
       });
@@ -501,7 +586,10 @@ function PostComposer({
         <label>{labels.postContent}<textarea className="text-field text-area" name="content" required maxLength={20000} rows={6} placeholder={labels.postContentPlaceholder} /></label>
         <label>{labels.postVisibility}<select className="text-field" value={visibility} onChange={(event) => setVisibility(event.target.value)}><option value="TENANT_PLAYERS">{labels.communityVisibility}</option><option value="PUBLIC">{labels.publicVisibility}</option><option value="PRIVATE">{labels.privateVisibility}</option><option value="PAID" disabled={!canPublishPaid}>{labels.paidVisibility}{canPublishPaid ? "" : ` (${labels.annualSubscriptionRequired})`}</option></select></label>
         {!canPublishPaid && <p className="form-legal">{labels.postAnnualRequired}</p>}
-        {visibility === "PAID" && <label>{labels.price} (XOF)<input className="text-field" type="number" min="1" step="1" name="price" required /></label>}
+        {visibility === "PAID" && <div className="form-row">
+          <label>{labels.price}<input className="text-field" type="number" min="0" step="0.01" name="price" required /></label>
+          <label>{labels.currencyLabel}<input className="text-field" name="currency" defaultValue="XOF" pattern="([A-Za-z]{3}|FCFA)" maxLength={4} required /></label>
+        </div>}
         <PostMediaFileField key={mediaFieldVersion} />
         <p className="form-legal">{labels.mediaUploadDetails}</p>
         <button className="button button-lime" type="submit" disabled={busy}>{busy ? <LoaderCircle className="spin" size={16} /> : <Plus size={16} />} {uploadProgress === null ? labels.publishPost : labels.uploadingMedia.replace("{progress}", String(uploadProgress))}</button>
@@ -1248,13 +1336,14 @@ function NotificationPanel() {
     }
   }, [labels.loadingGeneric]);
   useEffect(() => {
-    void refresh();
+    const initialRefresh = window.setTimeout(() => { void refresh(); }, 0);
     const interval = window.setInterval(() => {
       if (document.visibilityState === "visible") void refresh();
     }, 15_000);
     const refreshOnFocus = () => { if (document.visibilityState === "visible") void refresh(); };
     document.addEventListener("visibilitychange", refreshOnFocus);
     return () => {
+      window.clearTimeout(initialRefresh);
       window.clearInterval(interval);
       document.removeEventListener("visibilitychange", refreshOnFocus);
     };
@@ -1328,11 +1417,12 @@ export default function DashboardTools({
             <span>{labels.postsBlockedNotice}</span>
             <Link href="/dashboard?tab=subscription">{labels.plansRenewLink}</Link>
           </section>
+          <PendingManualPayments />
           <Feed tenantHandle={tenantHandle} category={category} />
         </>
       );
     }
-    return <><PostComposer tenantHandle={tenantHandle} initialCategory={category} canPublishPaid={canPublishPaid} onPublished={refreshPosts} /><Feed tenantHandle={tenantHandle} category={category} managePosts refreshToken={postRefreshToken} /></>;
+    return <><PostComposer tenantHandle={tenantHandle} initialCategory={category} canPublishPaid={canPublishPaid} onPublished={refreshPosts} /><PendingManualPayments /><Feed tenantHandle={tenantHandle} category={category} managePosts refreshToken={postRefreshToken} /></>;
   }
   if ((role === "ADMIN" || role === "SUPER_ADMIN") && tab === "bookmakers") return <BookmakerManager canManage />;
   if ((role === "ADMIN" || role === "SUPER_ADMIN") && tab === "results") {

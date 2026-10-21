@@ -73,7 +73,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Le fournisseur SasPay n’est pas activé." }, { status: 503 });
     }
     const verified = await provider.verifyCheckout(payment.providerPaymentId, {
-      amount: payment.amount,
+      amount: Number(payment.amount),
       currency: payment.currency,
     });
     if (verified.status === "PENDING") {
@@ -84,6 +84,7 @@ export async function POST(request: Request) {
       verified.status,
       "SASPAY",
       `SasPay:${payment.providerPaymentId}:${verified.status}`,
+      verified,
     );
     if (settled.kind === "missing") return NextResponse.json({ error: "Paiement local introuvable." }, { status: 503 });
     return NextResponse.json({ received: true, reconciled: true });

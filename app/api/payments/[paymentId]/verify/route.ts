@@ -31,7 +31,7 @@ export async function POST(
       return NextResponse.json({ error: "Le fournisseur SasPay n’est pas activé." }, { status: 503 });
     }
     const verified = await provider.verifyCheckout(payment.providerPaymentId, {
-      amount: payment.amount,
+      amount: Number(payment.amount),
       currency: payment.currency,
     });
     if (verified.status === "PENDING") return NextResponse.json({ status: "PENDING" });
@@ -40,9 +40,10 @@ export async function POST(
       verified.status,
       "SASPAY",
       `SasPay:${payment.providerPaymentId}:${verified.status}`,
+      verified,
     );
     if (settled.kind === "missing") return NextResponse.json({ error: "Transaction introuvable." }, { status: 404 });
-    return NextResponse.json({ status: settled.kind === "processed" ? settled.status : payment.status });
+    return NextResponse.json({ status: settled.status });
   } catch (cause) {
     console.error("SasPay payment verification failed.", {
       paymentId,

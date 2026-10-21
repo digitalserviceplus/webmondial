@@ -65,7 +65,43 @@ export async function POST(request: Request) {
       where: { id: user.id, emailVerifiedAt: null },
       data: { emailVerifiedAt: now },
     });
-    return updated.count === 1;
+    if (updated.count !== 1) return false;
+
+    const [memberships, globalAdmins] = await Promise.all([
+      tx.tenantMembership.findMany({
+        where: { userId: user.id },
+        select: { tenantId: true, tenant: { select: { ownerId: true, displayName: true } } },
+      }),
+      tx.user.findMany({ where: { role: "SUPER_ADMIN" }, select: { id: true } }),
+    ]);
+    const notificationData = [
+      {
+        userId: user.id,
+        type: "SYSTEM" as const,
+        title: "Compte confirmé",
+        body: "Votre adresse email est confirmée. Bienvenue sur Web Mondial.",
+        href: "/dashboard",
+      },
+      ...globalAdmins.map(({ id }) => ({
+        userId: id,
+        type: "NEW_PLAYER" as const,
+        title: "Nouveau joueur",
+        body: "Un nouveau joueur a confirmé son compte sur Web Mondial.",
+        href: "/dashboard?tab=overview",
+      })),
+      ...memberships.flatMap(({ tenantId, tenant }) => [
+        {
+          userId: tenant.ownerId,
+          tenantId,
+          type: "NEW_PLAYER" as const,
+          title: "Nouveau joueur",
+          body: `Un joueur a confirmé son compte dans votre espace ${tenant.displayName}.`,
+          href: "/dashboard?tab=overview",
+        },
+      ]),
+    ];
+    await tx.notification.createMany({ data: notificationData });
+    return true;
   });
   if (!verified) return NextResponse.json({ error: "Le code a déjà été utilisé. Connectez-vous." }, { status: 409 });
   return NextResponse.json({ ok: true });

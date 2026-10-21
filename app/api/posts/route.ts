@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { isMediaId, readMediaMetadata, resolveMediaType } from "@/lib/media-storage";
 import { rateLimit, requestKey } from "@/lib/rate-limit";
 import { annualSubscriptionCutoff, canPublishContent, canPublishPaidContent } from "@/lib/subscriptions";
+import { canAccessPublication, isEffectivelyPaid } from "@/lib/publications";
 
 const categories = ["DAILY", "PREMIUM", "MONTANTE", "VIP", "FIXED", "GROSSE_COTE", "GENERAL"] as const;
 const visibilityOptions = ["PUBLIC", "TENANT_PLAYERS", "PRIVATE", "PAID"] as const;
@@ -15,7 +16,10 @@ const postSchema = z.object({
   content: z.string().trim().min(1).max(20_000),
   sport: z.string().trim().max(50).optional(),
   visibility: z.enum(visibilityOptions).default("TENANT_PLAYERS"),
-  price: z.number().int().positive().max(100_000_000).optional(),
+  price: z.number().finite().min(0).max(100_000_000)
+    .refine((value) => Math.abs(value * 100 - Math.round(value * 100)) < 1e-8).optional(),
+  currency: z.string().trim().toUpperCase().regex(/^(?:[A-Z]{3}|FCFA)$/)
+    .transform((value) => value === "FCFA" ? "XOF" : value).default("XOF"),
   mediaUrl: z.string().trim().max(2048).optional(),
   mediaType: z.enum(["IMAGE", "VIDEO"]).optional(),
 });
@@ -99,12 +103,19 @@ export async function GET(request: Request) {
       mediaType: true,
       createdAt: true,
       authorId: true,
+      result: {
+        select: { id: true, title: true, content: true, mediaUrl: true, mediaType: true, createdAt: true },
+      },
       _count: { select: { likes: true, ...(isOwnerOrSuperAdmin ? { views: true } : {}) } },
       likes: session?.user.id
         ? { where: { userId: session.user.id }, select: { id: true }, take: 1 }
         : false,
       purchases: session?.user.id
-        ? { where: { userId: session.user.id }, select: { id: true }, take: 1 }
+        ? {
+            where: { userId: session.user.id, payment: { is: { status: "SUCCEEDED" } } },
+            select: { id: true },
+            take: 1,
+          }
         : false,
     },
   });
@@ -112,22 +123,31 @@ export async function GET(request: Request) {
   const page = posts.slice(0, pageSize);
   const responsePosts = await Promise.all(
     page.map(async (post) => {
-      const canView =
-        isOwnerOrSuperAdmin ||
-        post.visibility === "PUBLIC" ||
-        (isMember && post.visibility === "TENANT_PLAYERS") ||
-        (post.visibility === "PAID" && Boolean(post.purchases?.length));
-      const isOwner = post.authorId === session?.user.id;
-      const locked = post.visibility === "PAID" && !canView && !isOwner;
+      const hasConfirmedPurchase = Boolean(post.purchases?.length);
+      const canView = canAccessPublication({
+        visibility: post.visibility,
+        price: post.price,
+        isOwner: isOwnerOrSuperAdmin || post.authorId === session?.user.id,
+        isMember,
+        hasPurchase: hasConfirmedPurchase,
+      });
+      const locked = isEffectivelyPaid(post.visibility, post.price) && !canView;
       const mediaType = locked ? null : await resolveMediaType(post.mediaUrl, post.mediaType);
       return {
         ...post,
+        price: post.price === null ? null : Number(post.price),
         content: locked ? preview(post.content) : post.content,
         mediaUrl: locked ? null : post.mediaUrl,
         mediaType,
+        result: locked || !post.result
+          ? null
+          : {
+              ...post.result,
+              mediaType: await resolveMediaType(post.result.mediaUrl, post.result.mediaType),
+            },
         locked,
         liked: Boolean(post.likes?.length),
-        purchased: Boolean(post.purchases?.length),
+        purchased: hasConfirmedPurchase,
         authorId: undefined,
         likes: undefined,
         purchases: undefined,
@@ -192,7 +212,11 @@ export async function POST(request: Request) {
     );
   }
 
-  const annualPayment = parsed.data.visibility === "PAID" && session.user.role !== "SUPER_ADMIN"
+  if (parsed.data.visibility === "PAID" && parsed.data.price === undefined) {
+    return NextResponse.json({ error: "Indiquez un prix pour ce contenu payant." }, { status: 400 });
+  }
+  const requiresPaidPublishing = isEffectivelyPaid(parsed.data.visibility, parsed.data.price);
+  const annualPayment = requiresPaidPublishing && session.user.role !== "SUPER_ADMIN"
     ? await prisma.payment.findFirst({
         where: {
           tenantId: tenant.id,
@@ -206,14 +230,11 @@ export async function POST(request: Request) {
       })
     : null;
   if (
-    parsed.data.visibility === "PAID" &&
+    requiresPaidPublishing &&
     session.user.role !== "SUPER_ADMIN" &&
     !canPublishPaidContent(subscription, annualPayment?.processedAt ?? null)
   ) {
     return NextResponse.json({ error: "Les contenus payants sont réservés aux partenaires ayant un abonnement annuel actif." }, { status: 403 });
-  }
-  if (parsed.data.visibility === "PAID" && !parsed.data.price) {
-    return NextResponse.json({ error: "Indiquez un prix pour ce contenu payant." }, { status: 400 });
   }
   let mediaType = parsed.data.mediaType;
   if (parsed.data.mediaUrl) {
@@ -246,6 +267,7 @@ export async function POST(request: Request) {
           sport: parsed.data.sport,
           visibility: parsed.data.visibility,
           price: parsed.data.visibility === "PAID" ? parsed.data.price : null,
+          currency: parsed.data.visibility === "PAID" ? parsed.data.currency : "XOF",
           mediaUrl: parsed.data.mediaUrl,
           mediaType: parsed.data.mediaUrl ? mediaType : null,
           published: true,
@@ -277,12 +299,17 @@ export async function POST(request: Request) {
         where: { tenantId: tenant.id },
         select: { userId: true, user: { select: { settings: { select: { language: true } } } } },
       });
-      if (members.length > 0) {
-        await prisma.notification.createMany({
-          data: members.map(({ userId, user }) => ({
+      const globalAdmins = await prisma.user.findMany({
+        where: { role: "SUPER_ADMIN", id: { not: session.user.id } },
+        select: { id: true },
+      });
+      const notificationData = [
+        ...members.filter(({ userId }) => userId !== session.user.id).map(({ userId, user }) => ({
             userId,
             tenantId: tenant.id,
-            type: post.category === "PREMIUM" || post.visibility === "PAID" ? "NEW_PREMIUM_PUBLICATION" : "NEW_PUBLICATION",
+            type: post.category === "PREMIUM" || isEffectivelyPaid(post.visibility, parsed.data.price)
+              ? "NEW_PREMIUM_PUBLICATION" as const
+              : "NEW_PUBLICATION" as const,
             title: user.settings?.language === "en"
               ? `${tenant.displayName} published`
               : user.settings?.language === "es"
@@ -293,10 +320,18 @@ export async function POST(request: Request) {
               : user.settings?.language === "es"
                 ? "Hay una nueva publicación en tu comunidad."
                 : "Une nouvelle publication est disponible dans votre espace.",
-            href: `/${tenant.handle}`,
-          })),
-        });
-      }
+            href: `/dashboard?tab=feed&tenant=${encodeURIComponent(tenant.handle)}`,
+        })),
+        ...globalAdmins.map(({ id }) => ({
+          userId: id,
+          tenantId: tenant.id,
+          type: "NEW_PUBLICATION" as const,
+          title: "Nouvelle publication",
+          body: `Une publication a été publiée dans l’espace ${tenant.displayName}.`,
+          href: "/dashboard?tab=overview",
+        })),
+      ];
+      if (notificationData.length > 0) await prisma.notification.createMany({ data: notificationData });
     } catch (error) {
       console.error("Failed to notify tenant members about a new post.", error);
     }
@@ -344,7 +379,11 @@ export async function PATCH(request: Request) {
       { status: 403 },
     );
   }
-  if (parsed.data.visibility === "PAID" && session.user.role !== "SUPER_ADMIN") {
+  if (parsed.data.visibility === "PAID" && parsed.data.price === undefined) {
+    return NextResponse.json({ error: "Indiquez un prix pour ce contenu payant." }, { status: 400 });
+  }
+  const requiresPaidPublishing = isEffectivelyPaid(parsed.data.visibility, parsed.data.price);
+  if (requiresPaidPublishing && session.user.role !== "SUPER_ADMIN") {
     const annualPayment = await prisma.payment.findFirst({
         where: {
           tenantId: post.tenantId,
@@ -359,9 +398,6 @@ export async function PATCH(request: Request) {
     if (!canPublishPaidContent(subscription, annualPayment?.processedAt ?? null)) {
       return NextResponse.json({ error: "Un abonnement annuel actif et payé en une fois est nécessaire." }, { status: 403 });
     }
-  }
-  if (parsed.data.visibility === "PAID" && !parsed.data.price) {
-    return NextResponse.json({ error: "Indiquez un prix pour ce contenu payant." }, { status: 400 });
   }
   let mediaType = parsed.data.mediaType;
   if (parsed.data.mediaUrl) {
@@ -389,6 +425,7 @@ export async function PATCH(request: Request) {
       sport: parsed.data.sport,
       visibility: parsed.data.visibility,
       price: parsed.data.visibility === "PAID" ? parsed.data.price : null,
+      currency: parsed.data.visibility === "PAID" ? parsed.data.currency : "XOF",
       mediaUrl: parsed.data.mediaUrl || null,
       mediaType: parsed.data.mediaUrl ? mediaType : null,
     },

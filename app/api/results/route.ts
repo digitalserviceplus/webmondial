@@ -3,6 +3,7 @@ import { z } from "zod";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { isMediaId, readMediaMetadata, resolveMediaType } from "@/lib/media-storage";
+import { isEffectivelyPaid } from "@/lib/publications";
 import { canPublishContent } from "@/lib/subscriptions";
 
 const resultSchema = z.object({
@@ -66,10 +67,34 @@ export async function GET(request: Request) {
     return NextResponse.json({ posts: resolvedPosts });
   }
 
+  const isMember = session.user.role === "PLAYER"
+    ? Boolean(await prisma.tenantMembership.findUnique({
+        where: { tenantId_userId: { tenantId: tenant.id, userId: session.user.id } },
+        select: { id: true },
+      }))
+    : false;
   const results = await prisma.couponResult.findMany({
     where: {
       tenantId: tenant.id,
-      post: { published: true, status: "ACTIVE", tenant: { status: "ACTIVE" } },
+      post: {
+        published: true,
+        status: "ACTIVE",
+        tenant: { status: "ACTIVE" },
+        ...(canManage ? {} : {
+          OR: [
+            { visibility: "PUBLIC" as const },
+            ...(isMember ? [{ visibility: "TENANT_PLAYERS" as const }] : []),
+            {
+              visibility: "PAID" as const,
+              OR: [
+                { price: null },
+                { price: { lte: 0 } },
+                { purchases: { some: { userId: session.user.id, payment: { is: { status: "SUCCEEDED" } } } } },
+              ],
+            },
+          ],
+        }),
+      },
     },
     orderBy: { createdAt: "desc" },
     take: 50,
@@ -102,7 +127,7 @@ export async function POST(request: Request) {
   }
   const tenant = await prisma.tenant.findFirst({
     where: { ownerId: session.user.id, status: "ACTIVE" },
-    select: { id: true },
+    select: { id: true, handle: true },
   });
   if (!tenant) return NextResponse.json({ error: "Aucun espace partenaire actif." }, { status: 403 });
   if (session.user.role !== "SUPER_ADMIN") {
@@ -127,7 +152,7 @@ export async function POST(request: Request) {
       publishedAt: { gte: start, lt: end },
       category: { in: ["DAILY", "PREMIUM", "MONTANTE", "VIP", "FIXED", "GROSSE_COTE"] },
     },
-    select: { id: true },
+    select: { id: true, visibility: true, price: true },
   });
   if (!post) return NextResponse.json({ error: "Choisissez un coupon publié aujourd’hui dans votre espace." }, { status: 404 });
 
@@ -145,22 +170,64 @@ export async function POST(request: Request) {
     mediaType = metadata.mediaType;
   }
 
-  const result = await prisma.couponResult.upsert({
-    where: { postId: post.id },
-    create: {
-      tenantId: tenant.id,
-      postId: post.id,
-      title: parsed.data.title,
-      content: parsed.data.content,
-      mediaUrl,
-      mediaType,
-    },
-    update: {
-      title: parsed.data.title,
-      content: parsed.data.content,
-      mediaUrl,
-      mediaType,
-    },
+  const { result } = await prisma.$transaction(async (tx) => {
+    const existing = await tx.couponResult.findUnique({
+      where: { postId: post.id },
+      select: { id: true },
+    });
+    const result = await tx.couponResult.upsert({
+      where: { postId: post.id },
+      create: {
+        tenantId: tenant.id,
+        postId: post.id,
+        title: parsed.data.title,
+        content: parsed.data.content,
+        mediaUrl,
+        mediaType,
+      },
+      update: {
+        title: parsed.data.title,
+        content: parsed.data.content,
+        mediaUrl,
+        mediaType,
+      },
+    });
+    if (existing) return { result };
+
+    const recipientIds = new Set<string>();
+    if (isEffectivelyPaid(post.visibility, post.price)) {
+      const purchases = await tx.publicationPurchase.findMany({
+        where: { postId: post.id, payment: { is: { status: "SUCCEEDED" } } },
+        select: { userId: true },
+      });
+      purchases.forEach(({ userId }) => recipientIds.add(userId));
+    } else if (post.visibility !== "PRIVATE") {
+      const members = await tx.tenantMembership.findMany({
+        where: { tenantId: tenant.id },
+        select: { userId: true },
+      });
+      members.forEach(({ userId }) => recipientIds.add(userId));
+    }
+
+    const globalAdmins = await tx.user.findMany({
+      where: { role: "SUPER_ADMIN", id: { not: session.user.id } },
+      select: { id: true },
+    });
+    globalAdmins.forEach(({ id }) => recipientIds.add(id));
+    recipientIds.delete(session.user.id);
+    if (recipientIds.size > 0) {
+      await tx.notification.createMany({
+        data: [...recipientIds].map((userId) => ({
+          userId,
+          tenantId: tenant.id,
+          type: "NEW_PUBLICATION",
+          title: "Nouveau résultat",
+          body: `Un résultat a été publié pour un coupon dans l’espace @${tenant.handle}.`,
+          href: `/dashboard?tab=results&tenant=${encodeURIComponent(tenant.handle)}`,
+        })),
+      });
+    }
+    return { result };
   });
   return NextResponse.json({ ok: true, result });
 }

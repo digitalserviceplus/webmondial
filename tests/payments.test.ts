@@ -3,6 +3,7 @@ import { createHmac } from "node:crypto";
 import test from "node:test";
 import { SasPayPaymentProvider } from "../lib/payments/provider";
 import { isValidSasPayWebhookSignature } from "../lib/payments/webhook-signature";
+import { canAccessPublication, isEffectivelyPaid } from "../lib/publications";
 import { calculateSubscription, canPublishContent, canPublishPaidContent, getPartnerTrialEndDate } from "../lib/subscriptions";
 
 const checkoutSessionId = "c9a17e2c-4b1a-4f0e-9c3d-2a1b3c4d5e6f";
@@ -72,6 +73,30 @@ test("SasPay checkout leaves country selection to SasPay when no country is know
   });
   const body = JSON.parse(String(requestInit?.body)) as Record<string, unknown>;
   assert.equal("country" in body, false);
+});
+
+test("SasPay checkout preserves fractional prices and their configured currency", async () => {
+  let requestInit: RequestInit | undefined;
+  const provider = new SasPayPaymentProvider("sk_test_example", async (_input, init) => {
+    requestInit = init;
+    return response({
+      id: checkoutSessionId,
+      checkout_url: "https://pay.saspay.me/checkout/checkout-slug",
+      status: "PENDING",
+    }, 201);
+  });
+  await provider.createCheckout({
+    paymentId: "local-payment-id",
+    amount: 0.01,
+    currency: "EUR",
+    description: "Publication payante",
+    customerEmail: "player@example.com",
+    customerName: "Awa Sossou",
+    returnUrl: "https://webmondial.example/paiement/retour",
+  });
+  const body = JSON.parse(String(requestInit?.body)) as Record<string, unknown>;
+  assert.equal(body.amount, "0.01");
+  assert.equal(body.currency, "EUR");
 });
 
 test("SasPay checkout accepts provider-owned payment hosts and rejects lookalike domains", async () => {
@@ -147,6 +172,69 @@ test("SasPay verification leaves pending sessions unpaid and rejects amount mism
     mismatchedProvider.verifyCheckout(checkoutSessionId, { amount: 2500, currency: "XOF" }),
     /montant ou la devise/,
   );
+});
+
+test("paid publication pricing treats zero as free in any currency and positive fractions as paid", () => {
+  for (const currency of ["XOF", "EUR", "USD", "GBP"]) {
+    assert.equal(isEffectivelyPaid("PAID", 0), false, `${currency} zero price should be free`);
+  }
+  assert.equal(isEffectivelyPaid("PAID", 0.01), true);
+  assert.equal(isEffectivelyPaid("PUBLIC", 0.01), false);
+  assert.equal(isEffectivelyPaid("PAID", null), false);
+});
+
+test("publication access is free at zero, locked without a paid purchase, and permanent after purchase", () => {
+  assert.equal(canAccessPublication({
+    visibility: "PAID",
+    price: 0,
+    isOwner: false,
+    isMember: false,
+    hasPurchase: false,
+  }), true);
+  assert.equal(canAccessPublication({
+    visibility: "PAID",
+    price: 0.01,
+    isOwner: false,
+    isMember: false,
+    hasPurchase: false,
+  }), false);
+  assert.equal(canAccessPublication({
+    visibility: "PAID",
+    price: 0.01,
+    isOwner: false,
+    isMember: false,
+    hasPurchase: true,
+  }), true);
+});
+
+test("SasPay verifies a fractional payment with its confirmed amount and currency", async () => {
+  const provider = new SasPayPaymentProvider("sk_test_example", async (input) =>
+    String(input).includes("/checkout-sessions/")
+      ? response({ id: checkoutSessionId, status: "PAID", transaction_id: transactionId, transaction_status: "SUCCESS" })
+      : response({ id: transactionId, status: "SUCCESS", requested_amount: "0.01", currency: "EUR" }),
+  );
+
+  assert.deepEqual(await provider.verifyCheckout(checkoutSessionId, { amount: 0.01, currency: "EUR" }), {
+    status: "SUCCEEDED",
+    amount: 0.01,
+    currency: "EUR",
+    providerTransactionId: transactionId,
+  });
+});
+
+test("SasPay-confirmed currency conversion is accepted when the transaction succeeded", async () => {
+  const provider = new SasPayPaymentProvider("sk_test_example", async (input) =>
+    String(input).includes("/checkout-sessions/")
+      ? response({ id: checkoutSessionId, status: "PAID", transaction_id: transactionId, transaction_status: "SUCCESS" })
+      : response({ id: transactionId, status: "SUCCESS", requested_amount: "0.03", currency: "USD" }),
+  );
+
+  assert.deepEqual(await provider.verifyCheckout(checkoutSessionId, { amount: 1, currency: "XOF" }), {
+    status: "SUCCEEDED",
+    amount: 0.03,
+    currency: "USD",
+    providerTransactionId: transactionId,
+  });
 });
 
 test("SasPay webhook signatures are timestamp-bound and compared against the raw body", () => {

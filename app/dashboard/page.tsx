@@ -70,7 +70,7 @@ const superAdminNavigation = [
   { id: "profile", label: "Profil et préférences", icon: CircleUserRound },
 ];
 
-async function DashboardContent({ tab }: { tab: string }) {
+async function DashboardContent({ tab, tenantHandle }: { tab: string; tenantHandle?: string }) {
   await io();
   const session = await auth();
   if (!session?.user) redirect("/connexion");
@@ -143,6 +143,7 @@ async function DashboardContent({ tab }: { tab: string }) {
     ]);
 
   const role = session.user.role;
+  const selectedMembership = memberships.find(({ tenant }) => tenant.handle === tenantHandle) ?? memberships[0];
   const serverNow = new Date();
   const labels = messagesFor(preferences?.language ?? "fr");
   const canPublishPaid = role === "SUPER_ADMIN" || canPublishPaidContent(
@@ -190,6 +191,23 @@ async function DashboardContent({ tab }: { tab: string }) {
   const initials = userName.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
   const sidebarName = ownedTenant?.displayName ?? userName;
   const partnerSectionTabs = new Set(["posts", "DAILY", "PREMIUM", "MONTANTE", "VIP", "FIXED", "GROSSE_COTE", "results", "bookmakers"]);
+  const filterTenantHandle = role === "PLAYER" ? selectedMembership?.tenant.handle : ownedTenant?.handle;
+  const playerPublicationTabs = ["feed", "DAILY", "PREMIUM", "MONTANTE", "VIP", "FIXED", "GROSSE_COTE", "results"];
+  const adminPublicationTabs = ["posts", "DAILY", "PREMIUM", "MONTANTE", "VIP", "FIXED", "GROSSE_COTE", "results"];
+  const showPublicationFilters = Boolean(
+    filterTenantHandle &&
+    (role === "PLAYER" ? playerPublicationTabs.includes(currentTab) : adminPublicationTabs.includes(currentTab)),
+  );
+  const publicationFilters = [
+    { id: role === "PLAYER" ? "feed" : "posts", label: labels.allPosts },
+    { id: "DAILY", label: labels.daily },
+    { id: "PREMIUM", label: labels.premium },
+    { id: "MONTANTE", label: labels.montante },
+    { id: "VIP", label: labels.vip },
+    { id: "FIXED", label: labels.fixed },
+    { id: "GROSSE_COTE", label: labels.grosseCote },
+    { id: "results", label: labels.results },
+  ];
 
   return (
     <main className="dashboard-shell">
@@ -226,7 +244,7 @@ async function DashboardContent({ tab }: { tab: string }) {
             currentLabel={navigation.find((item) => item.id === currentTab)?.label ?? labels.menu}
           >
             {navigation.map(({ id, label, icon: Icon }) => (
-              <Link className={`sidebar-link ${currentTab === id ? "active" : ""} ${partnerSectionTabs.has(id) ? "partner-nav-link" : ""}`} href={`/dashboard?tab=${id}`} key={id} aria-current={currentTab === id ? "page" : undefined}>
+              <Link className={`sidebar-link ${currentTab === id ? "active" : ""} ${partnerSectionTabs.has(id) ? "partner-nav-link" : ""}`} href={`/dashboard?tab=${id}${role === "PLAYER" && filterTenantHandle ? `&tenant=${encodeURIComponent(filterTenantHandle)}` : ""}`} key={id} aria-current={currentTab === id ? "page" : undefined}>
                 <Icon size={17} />
                 <span>{label}</span>
                 {id === "notifications" && <NotificationBadge initialCount={notificationCount} />}
@@ -245,6 +263,20 @@ async function DashboardContent({ tab }: { tab: string }) {
             </div>
             {role !== "PLAYER" && <span className="role-pill"><CircleUserRound size={15} /> {role === "SUPER_ADMIN" ? labels.superAdminRole : labels.partnerRole}</span>}
           </div>
+          {showPublicationFilters && <div className="publication-filter-wrap">
+            <nav className="publication-filter-nav" aria-label={labels.posts}>
+              {publicationFilters.map(({ id, label }) => (
+                <Link
+                  className={`publication-filter-link ${(role === "PLAYER" ? currentTab : currentTab === "results" ? "results" : currentTab) === id ? "active" : ""}`}
+                  href={`/dashboard?tab=${id}${role === "PLAYER" && filterTenantHandle ? `&tenant=${encodeURIComponent(filterTenantHandle)}` : ""}`}
+                  key={id}
+                  aria-current={(role === "PLAYER" ? currentTab : currentTab === "results" ? "results" : currentTab) === id ? "page" : undefined}
+                >
+                  {label}
+                </Link>
+              ))}
+            </nav>
+          </div>}
 
           {ownedTenant?.status === "SUSPENDED" && (
             <div className="dashboard-alert" role="status">
@@ -314,8 +346,8 @@ async function DashboardContent({ tab }: { tab: string }) {
           {role === "PLAYER" && (
             currentTab === "partner"
               ? <DashboardTools role={role} tab={currentTab} />
-              : memberships.length > 0
-              ? <DashboardTools role={role} tab={currentTab} tenantHandle={memberships[0].tenant.handle} tenantName={memberships[0].tenant.displayName} canReportAdmin={canReportAdmin} />
+              : selectedMembership
+              ? <DashboardTools role={role} tab={currentTab} tenantHandle={selectedMembership.tenant.handle} tenantName={selectedMembership.tenant.displayName} canReportAdmin={canReportAdmin} />
               : <div className="empty-feed dashboard-empty">
                   <span className="empty-icon"><Trophy size={20} /></span>
                   <h2>{labels.joinCommunityTitle}</h2>
@@ -338,7 +370,7 @@ async function DashboardContent({ tab }: { tab: string }) {
 export default function DashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; tenant?: string }>;
 }) {
   return (
     <Suspense fallback={<main className="page-loading"><DashboardLoadingLabel /></main>}>
@@ -354,8 +386,8 @@ function DashboardLoadingLabel() {
 async function DashboardPageContent({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; tenant?: string }>;
 }) {
-  const { tab = "feed" } = await searchParams;
-  return <DashboardContent tab={tab} />;
+  const { tab = "feed", tenant } = await searchParams;
+  return <DashboardContent tab={tab} tenantHandle={tenant} />;
 }

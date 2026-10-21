@@ -39,22 +39,11 @@ async function PublicSpace({ slug }: { slug: string }) {
           mediaUrl: true,
           mediaType: true,
           createdAt: true,
+          result: {
+            select: { id: true, title: true, content: true, mediaUrl: true, mediaType: true, createdAt: true },
+          },
           _count: { select: { likes: true } },
           likes: session?.user.id ? { where: { userId: session.user.id }, select: { id: true }, take: 1 } : false,
-        },
-      },
-      results: {
-        where: { post: { published: true, status: "ACTIVE", visibility: "PUBLIC" } },
-        orderBy: { createdAt: "desc" },
-        take: 12,
-        select: {
-          id: true,
-          title: true,
-          content: true,
-          mediaUrl: true,
-          mediaType: true,
-          createdAt: true,
-          post: { select: { id: true, title: true, category: true } },
         },
       },
     },
@@ -72,12 +61,9 @@ async function PublicSpace({ slug }: { slug: string }) {
     tenant.posts.map(async (post) => ({
       ...post,
       mediaType: await resolveMediaType(post.mediaUrl, post.mediaType),
-    })),
-  );
-  const publicResults = await Promise.all(
-    tenant.results.map(async (result) => ({
-      ...result,
-      mediaType: await resolveMediaType(result.mediaUrl, result.mediaType),
+      result: post.result
+        ? { ...post.result, mediaType: await resolveMediaType(post.result.mediaUrl, post.result.mediaType) }
+        : null,
     })),
   );
   const initials = tenant.displayName.trim().split(/\s+/).slice(0, 2).map((word) => word[0]).join("").toUpperCase();
@@ -163,6 +149,13 @@ async function PublicSpace({ slug }: { slug: string }) {
                 <p className="post-content"><LinkifiedText>{post.content}</LinkifiedText></p>
                 {post.mediaUrl && post.mediaType === "IMAGE" && <PostMediaImage src={post.mediaUrl} />}
                 {post.mediaUrl && post.mediaType === "VIDEO" && <video className="post-media post-media-video" src={post.mediaUrl} controls />}
+                {post.result && <div className="post-result">
+                  <strong><T id="results" /></strong>
+                  {post.result.title && <h4>{post.result.title}</h4>}
+                  <p className="post-content"><LinkifiedText>{post.result.content}</LinkifiedText></p>
+                  {post.result.mediaUrl && post.result.mediaType === "IMAGE" && <PostMediaImage src={post.result.mediaUrl} />}
+                  {post.result.mediaUrl && post.result.mediaType === "VIDEO" && <video className="post-media post-media-video" src={post.result.mediaUrl} controls />}
+                </div>}
                 <PostActions
                   postId={post.id}
                   href={`/${tenant.handle}#post-${post.id}`}
@@ -175,17 +168,6 @@ async function PublicSpace({ slug }: { slug: string }) {
         )}
       </section>
       <PublicPaidPosts tenantHandle={tenant.handle} />
-      {publicResults.length > 0 && <section className="profile-feed">
-        <div className="feed-heading"><div><span className="section-kicker"><T id="results" /></span><h2><T id="results" /></h2></div></div>
-        <div className="post-list">{publicResults.map((result) => <article className="post-card" id={`result-${result.id}`} key={result.id}>
-          <div className="post-meta"><span className="post-category"><T id={({ DAILY: "daily", PREMIUM: "premium", MONTANTE: "montante", VIP: "vip", FIXED: "fixed", GROSSE_COTE: "grosseCote", GENERAL: "publication" } as Record<string, string>)[result.post.category] ?? "publication"} /></span><span><CalendarDays size={14} /> <LocalizedDate date={result.createdAt.toISOString()} /></span></div>
-          <h3>{result.title || result.post.title || result.post.category}</h3>
-          <p className="post-content"><LinkifiedText>{result.content}</LinkifiedText></p>
-          {result.mediaUrl && result.mediaType === "IMAGE" && <PostMediaImage src={result.mediaUrl} />}
-          {result.mediaUrl && result.mediaType === "VIDEO" && <video className="post-media post-media-video" src={result.mediaUrl} controls />}
-          <PostActions postId={result.post.id} href={`/${tenant.handle}#result-${result.id}`} initialLikes={0} initialLiked={false} allowLike={false} />
-        </article>)}</div>
-      </section>}
       <footer className="site-footer">
         <Link className="brand brand-footer" href="/">
           <span className="brand-mark"><Trophy size={16} /></span>

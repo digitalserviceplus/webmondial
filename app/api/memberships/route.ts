@@ -24,19 +24,42 @@ export async function POST(request: Request) {
 
   const tenant = await prisma.tenant.findFirst({
     where: { handle: parsed.data.tenantHandle, status: "ACTIVE" },
-    select: { id: true },
+    select: { id: true, ownerId: true, displayName: true, handle: true },
   });
   if (!tenant) {
     return NextResponse.json({ error: "Cet espace n’est pas disponible." }, { status: 404 });
   }
 
-  await prisma.tenantMembership.upsert({
-    where: {
-      tenantId_userId: { tenantId: tenant.id, userId: session.user.id },
-    },
-    create: { tenantId: tenant.id, userId: session.user.id },
-    update: {},
+  const created = await prisma.tenantMembership.createMany({
+    data: { tenantId: tenant.id, userId: session.user.id },
+    skipDuplicates: true,
   });
+  if (created.count > 0) {
+    const globalAdmins = await prisma.user.findMany({
+      where: { role: "SUPER_ADMIN", id: { not: tenant.ownerId } },
+      select: { id: true },
+    });
+    await prisma.notification.createMany({
+      data: [
+        {
+          userId: tenant.ownerId,
+          tenantId: tenant.id,
+          type: "NEW_PLAYER",
+          title: "Nouveau membre",
+          body: `Un joueur a rejoint votre espace ${tenant.displayName}.`,
+          href: "/dashboard?tab=overview",
+        },
+        ...globalAdmins.map(({ id }) => ({
+          userId: id,
+          tenantId: tenant.id,
+          type: "NEW_PLAYER" as const,
+          title: "Nouveau membre",
+          body: `Un joueur a rejoint l’espace ${tenant.displayName}.`,
+          href: "/dashboard?tab=overview",
+        })),
+      ],
+    });
+  }
 
   return NextResponse.json({ ok: true }, { status: 200 });
 }

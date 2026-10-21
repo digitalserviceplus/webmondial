@@ -1,5 +1,6 @@
 import type { PostVisibility } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
+import { isEffectivelyPaid } from "@/lib/publications";
 
 export async function canViewTenantPost({
   userId,
@@ -7,12 +8,14 @@ export async function canViewTenantPost({
   tenantId,
   postId,
   visibility,
+  price,
 }: {
   userId?: string;
   role?: string;
   tenantId: string;
   postId: string;
   visibility: PostVisibility;
+  price?: number | null;
 }) {
   if (role === "SUPER_ADMIN") return true;
 
@@ -31,13 +34,18 @@ export async function canViewTenantPost({
   if (!tenant || tenant.status !== "ACTIVE") return false;
 
   if (role === "ADMIN" && tenant.ownerId === userId) return true;
+  if (!isEffectivelyPaid(visibility, price)) {
+    if (visibility === "PUBLIC" || visibility === "PAID") return true;
+    if (visibility === "PRIVATE") return false;
+    return Boolean(userId && membership);
+  }
   if (visibility === "PUBLIC") return true;
-  if (!userId || !membership) return false;
-  if (visibility === "TENANT_PLAYERS") return true;
+  if (!userId) return false;
+  if (visibility === "TENANT_PLAYERS") return Boolean(membership);
   if (visibility === "PAID") {
     return Boolean(
-      await prisma.publicationPurchase.findUnique({
-        where: { postId_userId: { postId, userId } },
+      await prisma.publicationPurchase.findFirst({
+        where: { postId, userId, payment: { is: { status: "SUCCEEDED" } } },
         select: { id: true },
       }),
     );

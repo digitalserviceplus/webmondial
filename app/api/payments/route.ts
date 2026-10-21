@@ -7,6 +7,7 @@ import { getPaymentProvider, SasPayPaymentProvider } from "@/lib/payments/provid
 import { calculateSubscription } from "@/lib/subscriptions";
 import { rateLimit, requestKey } from "@/lib/rate-limit";
 import { countryCodeFromValue } from "@/lib/countries";
+import { isEffectivelyPaid } from "@/lib/publications";
 
 const paymentSchema = z.union([
   z.object({
@@ -85,29 +86,29 @@ export async function POST(request: Request) {
             paymentLink: true,
             paymentPhone: true,
             paymentInstructions: true,
+            ownerId: true,
+            displayName: true,
             owner: { select: { role: true } },
           },
         },
       },
     });
     if (!post) return NextResponse.json({ error: "Contenu payant introuvable." }, { status: 404 });
-    if (post.tenant.owner.role !== "SUPER_ADMIN") {
-      return NextResponse.json({
-        manualPayment: true,
-        checkoutUrl: post.tenant.paymentLink,
-        paymentPhone: post.tenant.paymentPhone,
-        paymentInstructions: post.tenant.paymentInstructions,
-        error: post.tenant.paymentLink
-          ? "Le paiement est effectué auprès du partenaire. L’accès reste bloqué jusqu’à sa confirmation."
-          : "Le partenaire n’a pas encore configuré ses moyens de paiement.",
-      });
-    }
-    if (await prisma.publicationPurchase.findUnique({ where: { postId_userId: { postId: post.id, userId: session.user.id } } })) {
+    if (await prisma.publicationPurchase.findFirst({
+      where: {
+        postId: post.id,
+        userId: session.user.id,
+        payment: { is: { status: "SUCCEEDED" } },
+      },
+      select: { id: true },
+    })) {
       return NextResponse.json({ error: "Ce contenu est déjà débloqué." }, { status: 409 });
     }
-    if (!post.price) return NextResponse.json({ error: "Le prix de ce contenu est invalide." }, { status: 409 });
+    if (!isEffectivelyPaid("PAID", post.price)) {
+      return NextResponse.json({ error: "Cette publication est gratuite et ne nécessite aucun paiement." }, { status: 409 });
+    }
     paymentInput = {
-      amount: post.price,
+      amount: Number(post.price),
       currency: post.currency,
       type: "PAID_PUBLICATION",
       tenantId: post.tenantId,
@@ -116,6 +117,73 @@ export async function POST(request: Request) {
       title: post.title ?? "Contenu premium",
       returnTo: `/${post.tenant.handle}`,
     };
+    if (post.tenant.owner.role !== "SUPER_ADMIN") {
+      if (!post.tenant.paymentLink && !post.tenant.paymentPhone && !post.tenant.paymentInstructions) {
+        return NextResponse.json({ error: "Le partenaire n’a pas encore configuré ses moyens de paiement." }, { status: 409 });
+      }
+      const pendingPayment = await prisma.payment.findFirst({
+        where: {
+          userId: session.user.id,
+          tenantId: post.tenantId,
+          type: "PAID_PUBLICATION",
+          provider: "manual",
+          status: "PENDING",
+          amount: paymentInput.amount,
+          currency: paymentInput.currency,
+          metadata: { path: ["postId"], equals: post.id },
+        },
+        select: { id: true, externalReference: true, amount: true, currency: true, status: true },
+      });
+      const payment = pendingPayment ?? await prisma.payment.create({
+        data: {
+          userId: session.user.id,
+          tenantId: post.tenantId,
+          type: "PAID_PUBLICATION",
+          provider: "manual",
+          externalReference: `wm_${randomUUID()}`,
+          amount: paymentInput.amount,
+          currency: paymentInput.currency,
+          metadata: { postId: post.id, paymentMode: "MANUAL" },
+        },
+        select: { id: true, externalReference: true, amount: true, currency: true, status: true },
+      });
+      if (!pendingPayment) {
+        const globalAdmins = await prisma.user.findMany({
+          where: { role: "SUPER_ADMIN", id: { not: post.tenant.ownerId } },
+          select: { id: true },
+        });
+        await prisma.notification.createMany({
+          data: [
+            {
+              userId: post.tenant.ownerId,
+              tenantId: post.tenantId,
+              type: "SYSTEM",
+              title: "Paiement en attente",
+              body: `Un joueur demande l’accès à « ${post.title ?? "Publication premium"} ». Confirmez le paiement après réception.`,
+              href: "/dashboard?tab=posts",
+            },
+            ...globalAdmins.map(({ id }) => ({
+              userId: id,
+              tenantId: post.tenantId,
+              type: "SYSTEM" as const,
+              title: "Paiement en attente",
+              body: `Un paiement manuel est en attente dans l’espace ${post.tenant.displayName}.`,
+              href: "/dashboard?tab=overview",
+            })),
+          ],
+        });
+      }
+      return NextResponse.json({
+        manualPayment: true,
+        payment,
+        checkoutUrl: post.tenant.paymentLink,
+        paymentPhone: post.tenant.paymentPhone,
+        paymentInstructions: post.tenant.paymentInstructions,
+        error: post.tenant.paymentLink
+          ? "Le paiement est effectué auprès du partenaire. L’accès reste bloqué jusqu’à sa confirmation."
+          : "Le partenaire n’a pas encore configuré ses moyens de paiement.",
+      }, { status: 201 });
+    }
   }
 
   let provider: ReturnType<typeof getPaymentProvider>;
@@ -223,4 +291,51 @@ export async function POST(request: Request) {
     testMode: checkout.provider === "mock",
     message: checkout.provider === "mock" ? "Paiement simulé en attente. Confirmez-le dans l’interface de test locale." : undefined,
   }, { status: 201 });
+}
+
+export async function GET() {
+  const session = await auth();
+  if (!session?.user) return NextResponse.json({ error: "Authentification requise." }, { status: 401 });
+  if (session.user.role !== "ADMIN" && session.user.role !== "SUPER_ADMIN") {
+    return NextResponse.json({ error: "Accès réservé aux administrateurs." }, { status: 403 });
+  }
+
+  const payments = await prisma.payment.findMany({
+    where: {
+      type: "PAID_PUBLICATION",
+      provider: "manual",
+      status: "PENDING",
+      ...(session.user.role === "ADMIN" ? { tenant: { ownerId: session.user.id } } : {}),
+    },
+    orderBy: { createdAt: "asc" },
+    take: 100,
+    select: {
+      id: true,
+      amount: true,
+      currency: true,
+      createdAt: true,
+      metadata: true,
+      user: { select: { name: true } },
+      tenant: { select: { displayName: true } },
+    },
+  });
+  const postIds = payments.flatMap(({ metadata }) =>
+    metadata && typeof metadata === "object" && "postId" in metadata && typeof metadata.postId === "string"
+      ? [metadata.postId]
+      : [],
+  );
+  const posts = await prisma.post.findMany({
+    where: { id: { in: postIds } },
+    select: { id: true, title: true },
+  });
+  const titles = new Map(posts.map(({ id, title }) => [id, title]));
+
+  return NextResponse.json({
+    payments: payments.map(({ metadata, ...payment }) => {
+      const postId = metadata && typeof metadata === "object" && "postId" in metadata && typeof metadata.postId === "string"
+        ? metadata.postId
+        : null;
+      return { ...payment, postTitle: postId ? titles.get(postId) ?? null : null };
+    }),
+  }, { headers: { "Cache-Control": "no-store" } });
 }
